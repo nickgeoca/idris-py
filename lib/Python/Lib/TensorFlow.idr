@@ -38,20 +38,21 @@ Session_PS f = case f of
 Session_P : Type
 Session_P = Obj Session_PS
 
+{-
 Variable : Signature
 Variable f = case f of
  "run" => [Tensor_P] ~~> Obj Np.NDArray
  "run'" => [List $ Tensor_P] ~~> (List $ Obj Np.NDArray)
  "close" => [] ~~> ()
  _ => Object f
-
+-}
 
 -------------------------------------------------- 
 -- 
 TensorFlow : Signature
 TensorFlow f = case f of
   -- Session
-  "Session" => [] ~~> Obj Session
+  "Session" => [] ~~> Session_P
 
   -- Math
   "abs"  => [Tensor_P] ~~> Tensor_P
