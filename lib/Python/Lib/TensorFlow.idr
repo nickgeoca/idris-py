@@ -82,10 +82,20 @@ TensorFlow f = case f of
   "less_equal" => [Tensor_P, Tensor_P] ~~> Bool
 
   -- Datatypes
-  "float64" => [] ~~> TensorElemType_P
-  "float32" => [] ~~> TensorElemType_P
   "float16" => [] ~~> TensorElemType_P
+  "float32" => [] ~~> TensorElemType_P
+  "float64" => [] ~~> TensorElemType_P
+  "int8" => [] ~~> TensorElemType_P
+  "int16" => [] ~~> TensorElemType_P
   "int32" => [] ~~> TensorElemType_P
+  "int64" => [] ~~> TensorElemType_P
+  "uint8" => [] ~~> TensorElemType_P
+  "bool" => [] ~~> TensorElemType_P
+  "complex64" => [] ~~> TensorElemType_P
+  "complex128" => [] ~~> TensorElemType_P
+  "qint8" => [] ~~> TensorElemType_P
+  "qint32" => [] ~~> TensorElemType_P
+  "quint8" => [] ~~> TensorElemType_P
 
   -- Comparison operators
   "greater" => [Tensor_P, Tensor_P] ~~> Bool
