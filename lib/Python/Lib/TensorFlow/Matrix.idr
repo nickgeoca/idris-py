@@ -12,12 +12,23 @@ import Data.Vect
 %access public export
 %default total
 
-
+-- This library does not support DT_STRING (variable length byte array).
+-- Python TensorFlow may not fully support Float16
 data ElemType 
-  = Float64
+  = Float16
   | Float32
-  | Float16
+  | Float64
+  | Int8
+  | Int16
   | Int32
+  | Int64
+  | UInt8
+  | TFBool
+  | Complex64
+  | Complex128
+  | QInt8
+  | QInt32
+  | QUInt8
 
 -- Tensor types
 Shape : Type
@@ -47,11 +58,13 @@ record Session where
   constructor MkS
   session_p : Session_P
 
--- Type Session
+{-
+-- Type Variable
 export 
 record Variable where
   constructor MkV
   variable_p : Variable_P
+-}
 
 -- Fn
 private
@@ -107,10 +120,13 @@ close sM = do s <- sM
 
 -------------------------
 -- Variable
+{-
 export -- tf.Variable.__init__(initial_value=None, trainable=True, collections=None, validate_shape=True, caching_device=None, name=None, variable_def=None, dtype=None)
 session : Tensor xs dt -> PIO Variable
 session (MkT initial_value) = do var <- tf /. "Variable" $. [initial_value]
                                  return $ MkV var
+-}
+
 {-
 -- __init__(
 initial_value=None
@@ -344,10 +360,21 @@ while_loop cond body vars parallelIterations backProp swapMemory
 -- Datatypes
 toTfType : ElemType -> Obj TensorElemType_PS
 toTfType dt = case dt of
-         Float64 => unsafePerformIO $ tf /. "float64" $. []
-         Float32 => unsafePerformIO $ tf /. "float32" $. []
          Float16 => unsafePerformIO $ tf /. "float16" $. []
+         Float32 => unsafePerformIO $ tf /. "float32" $. []
+         Float64 => unsafePerformIO $ tf /. "float64" $. []
+         Int8    => unsafePerformIO $ tf /. "int8" $. []
+         Int16   => unsafePerformIO $ tf /. "int16" $. []
          Int32   => unsafePerformIO $ tf /. "int32" $. []
+         Int64   => unsafePerformIO $ tf /. "int64" $. []
+         UInt8   => unsafePerformIO $ tf /. "uint8" $. []
+         TFBool  => unsafePerformIO $ tf /. "bool" $. []
+         Complex64   => unsafePerformIO $ tf /. "complex64" $. []
+         Complex128   => unsafePerformIO $ tf /. "complex128" $. []
+         QInt8   => unsafePerformIO $ tf /. "qint8" $. []
+         QInt32  => unsafePerformIO $ tf /. "qint32" $. []
+         QUInt8  => unsafePerformIO $ tf /. "quint8" $. []
+
 
 -------------------------
 -- Placeholders
