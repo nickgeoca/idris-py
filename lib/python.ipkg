@@ -15,3 +15,5 @@ modules = Python
 	, Python.Lib.BeautifulSoup
 	, Python.Lib.Numpy
 	, Python.Lib.Numpy.Matrix
+	, Python.Lib.TensorFlow
+	, Python.Lib.TensorFlow.Matrix
