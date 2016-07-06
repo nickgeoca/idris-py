@@ -4,6 +4,7 @@ import Python
 import Python.Prim
 import Python.Lib.Numpy
 
+import Data.List.Quantifiers
 import Data.Vect
 
 %access public export
@@ -31,7 +32,18 @@ record Matrix (rows : Nat) (cols : Nat) (dtype : DType a) where
   constructor MkM
   arr : Obj NDArray
 
-private
+export
+record MatrixN (shape : List Nat) (dtype : DType a) where
+  constructor MkM'
+  arr : Obj NDArray
+
+
+MatrixList : List (List Nat, DType a) -> Type 
+MatrixList ts = All fn ts
+  where fn : (List Nat, DType a) -> Type
+        fn (xs,dt) = MatrixN xs dt
+
+export -- Different
 unsafeNp : PIO (Obj NDArray) -> Matrix r c dt
 unsafeNp = MkM . unsafePerformIO
 
@@ -99,3 +111,6 @@ implementation Num (Matrix r c dt) where
 
 implementation Show (Matrix r c dt) where
   show (MkM x) = unsafePerformIO $ x /. "__str__" $. []
+
+implementation Show (MatrixN xs dt) where
+  show (MkM' x) = unsafePerformIO $ x /. "__str__" $. []
