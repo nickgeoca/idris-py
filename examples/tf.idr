@@ -113,9 +113,9 @@ test_run =
 -- main
 
 main : PIO ()
-main = do -- test_basics
-          -- test_arithmetic
-          -- test_reduce
+main = do test_basics
+          test_arithmetic
+          test_reduce
           test_run
 
 
