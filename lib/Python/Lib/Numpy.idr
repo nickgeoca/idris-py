@@ -15,6 +15,21 @@ NDArray f = case f of
 Arr : Type
 Arr = Obj NDArray
 
+{-
+export
+implementation Show Arr where
+  show x = unsafePerformIO $ x /. "__str__" $. []
+-}
+
+--------------------------------------------------
+NpElemType_PS : Signature
+NpElemType_PS f = case f of
+  _ => Object f
+
+NpElemType_P : Type
+NpElemType_P = Obj NpElemType_PS
+
+--------------------------------------------------
 ArithT : Type -> Signature
 ArithT a f = case f of
   "__add__" => [a, a] ~~> a
@@ -50,8 +65,32 @@ Numpy f = case f of
   "abs" => [Arr] ~~> Arr
   "dot" => [Arr, Arr] ~~> Arr
   "transpose" => [Arr] ~~> Arr
-  "tile" => [Dyn, (Nat, Nat)] ~~> Arr
+  "full" => [Obj $ PyList Nat, Double, NpElemType_P] ~~> Arr
   "ndarray" => Attr $ Obj NDArrayT
+
+  -- Datatypes
+  "bool" => [] ~~> NpElemType_P
+  "int" => [] ~~> NpElemType_P
+  "intc" => [] ~~> NpElemType_P
+  "intp" => [] ~~> NpElemType_P
+  "int8" => [] ~~> NpElemType_P
+  "int16" => [] ~~> NpElemType_P
+  "int32" => [] ~~> NpElemType_P
+  "int64" => [] ~~> NpElemType_P
+  "uint8" => [] ~~> NpElemType_P
+  "uint16" => [] ~~> NpElemType_P
+  "uint32" => [] ~~> NpElemType_P
+  "uint64" => [] ~~> NpElemType_P
+  "float" => [] ~~> NpElemType_P
+  "float16" => [] ~~> NpElemType_P
+  "float32" => [] ~~> NpElemType_P
+  "float64" => [] ~~> NpElemType_P
+  "complex" => [] ~~> NpElemType_P
+  "complex64" => [] ~~> NpElemType_P
+  "complex128" => [] ~~> NpElemType_P
+
+
+
   _ => Module f
 
 import_ : PIO $ Obj Numpy

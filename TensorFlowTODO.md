@@ -1,8 +1,3 @@
-* Create TF library
-* Create NN library
-* README
-* 
-
 1. Is it easier to create new function names with default values that 95% of the time people use? This would reduce clutter.
     * ex tf.reduce_mean(input_tensor, reduction_indices=None, keep_dims=False, name=None)
         * reduce_mean   : Tensor xs dt -> List Int -> Bool -> Tensor xs dt
@@ -11,6 +6,13 @@
         * reduce_mean  tensor [1,2] False
         * redue_mean'  tensor [1,2]  
         * redue_mean'' tensor
+????
+ def1: reduce_mean @ tensor
+ def2: reduce_mean # tensor [1,2]
+ defn: reduce_mean tensor [1,2] False
+????
+have users define shorter functions in where clause
+ redcue_mean1 tensor 
 
 2. What is the best way to do broadcasting multiplication?
     * New function/operator?
@@ -19,6 +21,8 @@
     * Use existing functions, but it will lead to more complex function types. And is easier to make mistakes.
         * mul x y
         * x * y
+    * functional style
+        * map (x+) y   (doesn't make sense if shapes are: [10,1] [1,10])
 
 3. What are the best operators to use?
     * Matlab ex
@@ -31,7 +35,7 @@
 4. How does one make tests?
 
 5. Code standards
-** Is camel case better to use? Python community uses lower case, but Idris uses camel case
+    * Is camel case better to use? Python community uses lower case, but Idris uses camel case
 
 6. Sort and organize tensorflow functions
 
@@ -44,8 +48,12 @@ reduce_mean : Tensor shape dt
            -> Tensor (reduce_reshape b_keep_tensor_rank remove_dims shape) dt
 
 9. Fix TensorFlow.Matrix.idr kludge for while_loop.
-* The while_loop body/condition functions are parameterized with tensors, but using Idris seems to limit to only being able to parameterize w/ a list of tensors
-** Ex: tensorflow python condition(t0,t1,t2,..) ; tensorflow idris condition([t0,t1,t2,..])
-* Handling by using a kludge.py python file that does the python *args trick    
+    * The while_loop body/condition functions are parameterized with tensors, but using Idris seems to limit to only being able to parameterize w/ a list of tensors
+        * Ex: tensorflow python condition(t0,t1,t2,..) ; tensorflow idris condition([t0,t1,t2,..])
+    * Handling by using a kludge.py python file that does the python *args trick    
 
 10. Constrain matrix operations to appropriate types. E.g. can't do tf.floordiv on complex types
+
+11. infixl opeators are not working
+
+12. What is the best way to document functions? It might be better if left TF to the reference documentation if their API changes. Also dependent types document the code to some extent.

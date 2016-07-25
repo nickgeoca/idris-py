@@ -19,25 +19,63 @@ Tensor_PS f = case f of
 Tensor_P : Type
 Tensor_P = Obj Tensor_PS
 
+{-
 TensorElemType_PS : Signature
 TensorElemType_PS f = case f of
   _ => Object f
   
 TensorElemType_P : Type
 TensorElemType_P = Obj TensorElemType_PS
+-- -}
+
+-- {-
+TensorElemType : Type
+TensorElemType = String
+-- -}
+{-
+     Obj Tensor_PS  cannot be a parameter of Prelude.Show.Show
+     (Implementation arguments must be injective)
+implementation Show Tensor_P where
+  show x = unsafePerformIO $ x /. "__str__" $. []
+-}
+-------------------------------------------------- 
+-- Op type
+Op_PS : Signature
+Op_PS f = case f of
+  "__str__" => [] ~~> String
+  _ => Object f
+
+Op_P : Type
+Op_P = Obj Op_PS
+
 
 --------------------------------------------------
 -- Session type
+
+GraphElem_PS : Signature
+GraphElem_PS f = case f of
+  _ => Object f
+  
+GraphElem_P : Type
+GraphElem_P = Obj GraphElem_PS
+
+
 Session_PS : Signature
 Session_PS f = case f of
- "run" => [Tensor_P] ~~> Obj Np.NDArray
- "run'" => [List $ Tensor_P] ~~> (List $ Obj Np.NDArray)
+ -- "run" => [GraphElem_P] ~~> GraphElem_P
+ -- "run" => [Op_P] ~~> ()
+ -- "run" => [Tensor_P] ~~> Obj Np.NDArray
+ -- "run" => [List $ Tensor_P] ~~> (List $ Obj Np.NDArray)
+ "run" => [Tensor_P, Dictionary_P (Tensor_P, Arr)] ~~> Np.Arr
  "close" => [] ~~> ()
  _ => Object f
+
 
 Session_P : Type
 Session_P = Obj Session_PS
 
+--------------------------------------------------
+-- Variable type
 {-
 Variable : Signature
 Variable f = case f of
@@ -54,6 +92,14 @@ TensorFlow f = case f of
   -- Session
   "Session" => [] ~~> Session_P
 
+  -- Variable
+  "Variable" => [Tensor_P] ~~> Tensor_P
+  "initialize_all_variables" => [] ~~> Op_P
+
+  -- Tensor transformations
+  "cast" => [Tensor_P, TensorElemType] ~~> Tensor_P
+
+
   -- Math
   "abs"  => [Tensor_P] ~~> Tensor_P
   "add"  => [Tensor_P, Tensor_P] ~~> Tensor_P
@@ -69,33 +115,40 @@ TensorFlow f = case f of
   "reduce_sum" => [Tensor_P, Obj $ PyList Nat, Bool] ~~> Tensor_P
 
   -- ...
-  "ones" => [Obj $ PyList Nat] ~~> Tensor_P
-  "zeros" => [Obj $ PyList Nat] ~~> Tensor_P
+  "ones" => [Obj $ PyList Nat, TensorElemType] ~~> Tensor_P
+  "zeros" => [Obj $ PyList Nat, TensorElemType] ~~> Tensor_P
+
+  -- Control flow
+  "argmax" => [Tensor_P, Obj $ PyList Nat] ~~> Tensor_P
 
   -- Control flow
   --..
 
   -- Comparison operators
-  "greater" => [Tensor_P, Tensor_P] ~~> Bool
-  "greater_equal" => [Tensor_P, Tensor_P] ~~> Bool
-  "less" => [Tensor_P, Tensor_P] ~~> Bool
-  "less_equal" => [Tensor_P, Tensor_P] ~~> Bool
+  "equal" => [Tensor_P, Tensor_P] ~~> Tensor_P
+  "not_equal" => [Tensor_P, Tensor_P] ~~> Tensor_P
+  "greater" => [Tensor_P, Tensor_P] ~~> Tensor_P
+  "greater_equal" => [Tensor_P, Tensor_P] ~~> Tensor_P
+  "less" => [Tensor_P, Tensor_P] ~~> Tensor_P
+  "less_equal" => [Tensor_P, Tensor_P] ~~> Tensor_P
 
+  {-
   -- Datatypes
-  "float16" => [] ~~> TensorElemType_P
-  "float32" => [] ~~> TensorElemType_P
-  "float64" => [] ~~> TensorElemType_P
-  "int8" => [] ~~> TensorElemType_P
-  "int16" => [] ~~> TensorElemType_P
-  "int32" => [] ~~> TensorElemType_P
-  "int64" => [] ~~> TensorElemType_P
-  "uint8" => [] ~~> TensorElemType_P
-  "bool" => [] ~~> TensorElemType_P
-  "complex64" => [] ~~> TensorElemType_P
-  "complex128" => [] ~~> TensorElemType_P
-  "qint8" => [] ~~> TensorElemType_P
-  "qint32" => [] ~~> TensorElemType_P
-  "quint8" => [] ~~> TensorElemType_P
+  "float16" => TensorElemType_P
+  "float32" => TensorElemType_P
+  "float64" => TensorElemType_P
+  "int8" => TensorElemType_P
+  "int16" => TensorElemType_P
+  "int32" => TensorElemType_P
+  "int64" => TensorElemType_P
+  "uint8" => TensorElemType_P
+  "bool" => TensorElemType_P
+  "complex64" => TensorElemType_P
+  "complex128" => TensorElemType_P
+  "qint8" => TensorElemType_P
+  "qint32" => TensorElemType_P
+  "quint8" => TensorElemType_P
+  -- -}
 
   -- Comparison operators
   "greater" => [Tensor_P, Tensor_P] ~~> Bool
@@ -104,7 +157,7 @@ TensorFlow f = case f of
   "less_equal" => [Tensor_P, Tensor_P] ~~> Bool
 
   -- Placeholders
-  "placeholder" => [TensorElemType_P] ~~> Tensor_P
+  "placeholder" => [TensorElemType, Obj $ PyList Nat] ~~> Tensor_P
 
   -- Module
   _ => Module f
@@ -116,6 +169,11 @@ TensorFlowKludge f = case f of
   _ => Module f
 
 
+TensorFlowNN : Signature
+TensorFlowNN f = case f of
+  "softmax" => [Tensor_P] ~~> Tensor_P
+  _ => Module f
+
+
 import_ : PIO $ Obj TensorFlow
 import_ = importModule "tensorflow"
-

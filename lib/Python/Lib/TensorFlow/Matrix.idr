@@ -3,14 +3,23 @@ module Python.Lib.TensorFlow.Matrix
 import Python
 import Python.Prim
 import Python.Lib.TensorFlow
-import Python.Lib.Numpy as Np
-import Python.Lib.Numpy.Matrix
+import Python.Lib.Numpy
+import Python.Lib.Numpy.Matrix as Np
+
 
 import Data.List.Quantifiers
+import Data.Vect.Quantifiers
 import Data.Vect
 
 %access public export
 %default total
+
+-- Operator Precedence
+infixl 8 +.
+infixl 8 -.
+infixl 9 *.
+-- infixl 9 /. TODO: Fix this
+-- infixl 9 *> TODO: Fix this
 
 -- This library does not support DT_STRING (variable length byte array).
 -- Python TensorFlow may not fully support Float16
@@ -34,7 +43,8 @@ data ElemType
 Shape : Type
 Shape = List Nat
 
-export 
+
+public export 
 record Tensor (shape : Shape) (dtype : ElemType) where
   constructor MkT
   tensor_p : Tensor_P
@@ -44,6 +54,8 @@ TensorList ts = All fn ts
   where fn : (Shape, ElemType) -> Type
         fn (xs,dt) = Tensor xs dt
 
+Tensors : {n : Nat} -> (dtTs : Vect n (Shape, ElemType)) -> Type
+Tensors {n=n} _ = Vect n Tensor_P
 
 TFCondition : List (Shape, ElemType) -> Type
 TFCondition a = TensorList a -> Bool
@@ -51,6 +63,18 @@ TFCondition a = TensorList a -> Bool
 TFBody : List (Shape, ElemType) -> Type
 TFBody a = TensorList a -> TensorList a 
 
+
+{-
+||| Represents a graph node that performs computation on tensors.
+data Ops = TOp (Tensor shape dt) -- Tensor
+         | GOp                    -- General operations. E.g. tf.initialize_all_variables()
+--        | VOp (Tensor shape dt) -- Variable
+-}
+
+export 
+record Op where
+  constructor MkOp
+  op_p : Op_P
 
 -- Type Session
 export 
@@ -71,47 +95,375 @@ private
 tf : Obj TensorFlow
 tf = unsafePerformIO TensorFlow.import_
 
+private
+op1 : (f : String)
+  -> {auto pf : TensorFlow f = [Tensor_P] ~~> Tensor_P}
+  -> Tensor ls dt -> Tensor ls dt
+op1 f (MkT x) = MkT . unsafePerformIO $ tf /. f $. [x]
+
+
+private
+op2 : (f : String)
+  -> {auto pf : TensorFlow f = [Tensor_P, Tensor_P] ~~> Tensor_P}
+  -> Tensor ls dt -> Tensor ls dt -> Tensor ls dt
+op2 f (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. f $. [x, y]
+
 private 
 unsafeTfSession : PIO (Session_P) -> Session
 unsafeTfSession = MkS . unsafePerformIO
 
 -------------------------
+
+
 implementation Show (Tensor xs dt) where
   show (MkT x) = unsafePerformIO $ x /. "__str__" $. []
 
+
+-------------------------
+-- Helper functions (not tf api)
+{-
+-- BUG: Need to check the broadcast dimensions with this sort of function
+if and $ zipWith (\x,y=> y==1 || x==1 || x == y) (reverse a) (reverse b)
+then good
+else fail
+
+-- This function assumes the two shapes are compatible 
+-- [100,1,100,1] [100,1,100] => [100,100,100,100]
+broadcast_dim : List Nat -> List Nat -> List Nat
+broadcast_dim xs ys = padding ++ ps 
+  where 
+  ps : List Nat
+  padding : List Nat
+  lxs : Nat
+  lys : Nat
+  ps  = reverse $ zipWith (\x, y => if x > y then x else y) (reverse xs) (reverse ys)
+  lxs = length xs
+  lys = length ys
+  padding = if lxs > lys 
+            then take (lxs-lys) xs 
+            else take (lys-lxs) ys 
+-}
+-- BUG: Fix this
+broadcast_dim : List Nat -> List Nat -> List Nat
+broadcast_dim x y = y
+
+toTfType : ElemType -> TensorElemType
+toTfType dt = case dt of
+-- {-
+         Float16 => "float16"
+         Float32 => "float32"
+         Float64 => "float64"
+         Int8    => "int8"
+         Int16   => "int16"
+         Int32   => "int32"
+         Int64   => "int64"
+         UInt8   => "uint8"
+         TFBool  => "bool"
+         Complex64   => "complex64"
+         Complex128   => "complex128"
+         QInt8   => "qint8"
+         QInt32  => "qint32"
+         QUInt8  => "quint8"
+-- -}
+{-
+         Float16 => unsafePerformIO $ tf /. "float16"
+         Float32 => unsafePerformIO $ tf /. "float32"
+         Float64 => unsafePerformIO $ tf /. "float64"
+         Int8    => unsafePerformIO $ tf /. "int8"
+         Int16   => unsafePerformIO $ tf /. "int16"
+         Int32   => unsafePerformIO $ tf /. "int32"
+         Int64   => unsafePerformIO $ tf /. "int64"
+         UInt8   => unsafePerformIO $ tf /. "uint8"
+         TFBool  => unsafePerformIO $ tf /. "bool"
+         Complex64   => unsafePerformIO $ tf /. "complex64"
+         Complex128   => unsafePerformIO $ tf /. "complex128"
+         QInt8   => unsafePerformIO $ tf /. "qint8"
+         QInt32  => unsafePerformIO $ tf /. "qint32"
+         QUInt8  => unsafePerformIO $ tf /. "quint8"
+-- -}
 
 ----------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------
 -- Tensorflow Api
 
+{-
+The fetches argument may be 
+ * a single graph element 
+ * a list of graph elements
+ * a dictionary whose values are the above
+The type of fetches determines the return value of this method. 
+A graph element can be one of the following types:
+ * If an element of fetches is an Operation, the corresponding fetched value will be None.
+ * If an element of fetches is a Tensor, the corresponding fetched value will be a numpy ndarray containing the value of that tensor.
+ * If an element of fetches is a SparseTensor, the corresponding fetched value will be a SparseTensorValue containing the value of that sparse tensor.
+ * If an element of fetches is produced by a get_tensor_handle op, the corresponding fetched value will be a numpy ndarray containing the handle of that tensor.
+data GraphElem = GEOp | GET (Tensor xs dt) | GEST (STensor xs dt) | 
+data Fetches = FetchL (List GraphElem) | Fetch GraphElem | Fetch
+data FetchesIn  = FIO Op              | FIT (Tensor xs dt) | FIS (STensor xs dt)  | get_tensor_handle op
+data FetchesOut = Nil                 | FOT (MatrixN xs dt)| FOS (STensorV xs dt) | handle of tensor (MatrixN xs dt)
+List (Just )
+-}
+
+implementation Cast ElemType NpElemType where
+  cast t = case t of
+    Float16 => Np.Float16
+    Float32 => Np.Float32
+    Float64 => Np.Float64
+    Int8 => Np.Int8
+    Int16 => Np.Int16
+    Int32 => Np.Int32
+    Int64 => Np.Int64
+    UInt8 => Np.Uint8
+    TFBool => Np.Bool
+    Complex64 => Np.Complex64
+    Complex128 => Np.Complex128
+    -- NOTE: For the types below, there are probably corner cases where this won't work
+    QInt8 => Np.Float32
+    QInt32 => Np.Float32
+    QUInt8 => Np.Float32
+
+implementation Cast (Shape, ElemType) (Shape, NpElemType) where
+  cast (s,e) = (s, cast e)
+
+implementation Cast (Vect n (Shape, ElemType)) (Vect n (Shape, NpElemType)) where
+  cast v = map cast v
+
+implementation Cast (Vect n a) (List a) where
+  cast (x::xs) = the (List a) $ x :: cast xs
+  cast [] = []
+
 -------------------------
 -- Session
+tensorToMatrix : List (Shape, ElemType) -> List (Shape, NpElemType)
+tensorToMatrix = map convert
+  where convert : (Shape, ElemType) -> (Shape, NpElemType)
+        convert (s, dt) = (s, cast dt)
+
+
+toSessionParam : (Shape, ElemType, NpElemType) -> Type
+toSessionParam (shape, dtT, dtM) = (Tensor shape dtT, MatrixN shape dtM)
+
+Session_Params : Vect n (Shape, ElemType, NpElemType) -> Type
+Session_Params xs = All toSessionParam xs
+
+
+{-
+castFT_to_Dictionary : {n:Nat} 
+                    -> {xv : Vect n (Shape, ElemType, NpElemType)} 
+                    -> Feed_Tensors xv
+                    -> Dictionary_P (Tensor_P, Obj NDArray)
+castFT_to_Dictionary = believe_me
+-}
+-- cast xs = pythonDictionaryOperation $ the (Obj $ PyList (Tensor_P, Matrix_P)) (cast xs)
+
+
+
+
+{-
+f : (Tensor shape dtT, MatrixN shape dtM) -> (Tensor_P, Obj NDArray)
+f (MkT t, MkM' m) = (t,m)
+
+map' : {xv : Vect n (Shape, ElemType, NpElemType)} 
+    -> ((Tensor s dtT, MatrixN s dtM) -> (Tensor_P, Obj NDArray)) 
+    -> Feed_Tensors xv 
+    -> List (Tensor_P, Obj NDArray)
+map' f (x::xv) = Prelude.List.(::) (the (Tensor_P, Obj NDArray) $ f x) 
+                                   (map' f xv)
+map' f Nil     = Nil
+
+-}
+
+
+{-
+fn : (Tensor shape dtT, MatrixN shape dtM) -> (Tensor_P, Obj NDArray)
+fn (MkT a, MkM' b) = (a,b)
+-}
+
+
+{-
+-- implementation Cast (Feed_Tensors (x::xv)) (Obj $ PyList (Tensor_P, Obj NDArray)) where
+cast' : {tv : Vect n (Shape, ElemType, NpElemType)} -> Session_Params tv -> List (Tensor_P, Obj NDArray)
+cast' [] = []
+cast' {tv=t::tv} (y :: zv) = fn y :: cast' {tv=tv} zv
+  where fn : toSessionParam t -> (Tensor_P, Obj NDArray)
+        fn (MkT a, MkM' b) = (a,b)
+-- -}
+-- ython.Lib.TensorFlow.Matrix.Feed_Tensors, fn (S n) (x :: xs) x (Type of y)
+
+
+-- cast' xs = ?implementation_rhs
+--  cast ((MkT t, MkM' m)::xv) = (t,m) :: cast xv
+--  cast _ impossible
+-- -}
+
+{-
+    map' : {Nil : Vect n (Shape, ElemType, NpElemType)} 
+        -> (x -> (Tensor_P, Obj NDArray)) 
+        -> Feed_Tensors xv 
+        -> List (Tensor_P, Obj NDArray)
+-- -}
+
+{-
+f (x::xs) = x :: f xs
+  v2L : Vect n a -> List a
+  v2L (x::xs) = x :: v2L xs
+  v2L Nil = Nil
+  -}
+
+{-
+Tensors : Vect n (Shape, ElemType) 
+       -> Vect n Tensor_P
+       -> Type
+Tensors : Vect n (Shape, ElemType) -> Type
+-}
+
+
+
+-- {-
+
+{-
+  toObj : (TensorList (zip shapes dtTs), MatrixList (zip shapes dtMs)) -> List (Tensor_P, Obj NDArray)
+--  toObj (xs,ys) = zip (xs) ()
+--  toObj ((MkT x)::xs, (MkM' y)::ys) = (x, y) :: toObj (xs,ys)
+  toObj _ = []
+
+  -- toObj ((MkT t, MkM' m)::xs) = (t,m) :: toObj xs
+  -- feed_dict = pyList $ toObj phs
+-- -}
+
+
+-- can't.. All P xs -> xs 
+-- can..  xs ** All P xs -> xs
+-- from xs : List t ** All P xs
+-- vec : (n : Nat ** Vect n Int)
+
+{-
+filter : (a -> Bool) -> Vect n a -> (p ** Vect p a)
+Vfilter p Nil = (_ ** [])
+filter p (x :: xs) with (filter p xs)
+  | ( _ ** xs' ) = if p x 
+                   then _ ** x :: xs' 
+                   else _ ** xs'
+-}
+
+
+
+
 export
 session : PIO Session
 session = do sess <- tf /. "Session" $. []
              return $ MkS sess
 
+export -- tf.Session.run(fetches, feed_dict=None, options=None, run_metadata=None)
+run : PIO Session 
+   -> Tensor xs dt
+   -> (Tensors dtTs, Matrices dtMs)  -- Placeholders
+   -> PIO (MatrixN xs $ cast dt)
+run sessM (MkT fetch) phs = 
+  do sess <- sessM
+     m <- (session_p sess) /. "run" $. [fetch, feed_dict]
+     return $ MkM' m
+  where
+  tensorList : List Tensor_P
+  tensorList = cast $ fst phs
+  matrixList : List Arr
+  matrixList = cast $ snd phs
+  feed_dict : Dictionary_P (Tensor_P, Arr) 
+  feed_dict = dict $ pyDictionary $ zip tensorList matrixList
+
+
+{- 
+
+data GraphElem = GEOp Op
+               | GETensor (Tensor xs dt)
+
+
+
+run : PIO Session 
+   -> (Feed_Tensors n ts -> Tensor xs dt) 
+   -> Feed_Tensors n ts 
+   -> PIO (MatrixN xs (cast dt))
+run sessM tFn params = 
+  do sess <- sessM
+     m <- (session_p sess) /. "run" $. [tesnor_p $ tFn params, cast params]
+     return $ MkM' m
+
+-- -}
+
+
+{-
+
+mapGE_To_Type : GraphElem -> Type
+mapGE_To_Type (GEOp _) = ()                  -- Py-None/Idris-Nothing
+mapGE_To_Type (GETensor {tensor}) = case the (Tensor xs dt) tensor of
+  _ => MatrixN xs DDouble
+-- mapGE_To_Type (GETensor (Tensor xs dt)) = MatrixN xs DDouble
+
+
+run : PIO Session -> (ge : GraphElem) -> PIO (mapGE_To_Type ge)
+-- PIO Session -> Op -> PIO ()
+run sM (GEOp (MkOp opObj)) = 
+  do s <- sM
+     (session_p s) /. "run" $. [opObj]
+-- PIO Session -> Tensor xs dt -> PIO (MatrixN xs DDouble)
+run sM (GETensor (MkT tObj)) =                
+  do s <- sM
+     m <- (session_p s) /. "run" $. [tObj]
+     return $ MkM' m
+-}
+
+ {-
+------------------------------------------------
+interface DoOp a b where
+  run : PIO Session -> a -> PIO b
+
+-- run : PIO Session -> Op -> PIO ()
+implementation DoOp Op () where
+  run sM (MkOp op) = do s <- sM
+                        (session_p s) /. "run" $. [cast op]
+-}
+
+{- 
+implementation DoOp (Tensor xs dt) (MatrixN xs DDouble) where
+  run sM (MkT tObj) =   -- run : PIO Session -> Tensor xs dt -> PIO (MatrixN xs DDouble)
+    do s <- sM
+       m <- (session_p s) /. "run1" $. [tObj]
+       return $ MkM' m
+------------------------------------------------
+ 
+
+
+PyObject_P : Type
+PyObject_P = Obj PyObject_PS
+
+
 export 
-run : PIO Session -> Tensor xs dt -> PIO $ MatrixN xs DDouble
-run sM (MkT tObj) = do s <- sM
-                       m <- (session_p s) /. "run" $. [tObj]
-                       return $ MkM' m
-
-tensorToMatrix : List (Shape, ElemType) -> List (Shape, DType Double)
-tensorToMatrix = map convert
-  where convert : (Shape, ElemType) -> (Shape, DType Double)
-        convert (s,_) = (s, DDouble)
+run : PIO Session -> TensorList xs
 
 
+export
+run0 : PIO Session -> Op -> PIO ()
+run0 sM (MkOp op) =   
+    do s <- sM
+       (session_p s) /. "run" $. [op]
+
+export
+run1 : PIO Session -> Tensor xs dt -> PIO (MatrixN xs DDouble)
+run1 sM (MkT tObj) =   
+    do s <- sM
+       m <- (session_p s) /. "run" $. [tObj]
+       return $ MkM' m
+
+-- BUG: This might be the wrong type signature below. Probably more like takes Tensor, returns MatrixList
 export 
-run' : PIO Session -> TensorList xs -> PIO $ MatrixList $ tensorToMatrix xs 
-run' sM ts = do s <- sM
-                m <- (session_p s) /. "run'" $. [tensorObjects]
+run2 : PIO Session -> TensorList xs -> PIO $ MatrixList $ tensorToMatrix xs 
+run2 sM ts = do s <- sM
+                m <- (session_p s) /. "run" $. [tensorObjects]
                 believe_me 'a' -- Bug: Fix this function
                 -- return $ MkM' m
   where     
   tensorObjects = believe_me 'a' -- MkM param
-
+-}
 export 
 close : PIO Session -> PIO ()
 close sM = do s <- sM
@@ -120,12 +472,33 @@ close sM = do s <- sM
 
 -------------------------
 -- Variable
-{-
+-- {- PIO Variable
 export -- tf.Variable.__init__(initial_value=None, trainable=True, collections=None, validate_shape=True, caching_device=None, name=None, variable_def=None, dtype=None)
-session : Tensor xs dt -> PIO Variable
-session (MkT initial_value) = do var <- tf /. "Variable" $. [initial_value]
-                                 return $ MkV var
+variable : Tensor xs dt -> Tensor xs dt
+variable (MkT initial_value) = MkT . unsafePerformIO $ tf /. "Variable" $. [initial_value]
+-- -}
+{-
+In [2]: tf.initialize_all_variables()
+Out[2]: <tensorflow.python.framework.ops.Operation at 0x7f7a4d656610>
+
+In [3]: tf.ones([])
+Out[3]: <tf.Tensor 'ones:0' shape=() dtype=float32>
+
+In [4]: tf.ones([]).op
+Out[4]: <tensorflow.python.framework.ops.Operation at 0x7f7a4d5f2050>
+
+In [5]: tf.Variable(tf.ones([])).op
+Out[5]: <tensorflow.python.framework.ops.Operation at 0x7f7a4d5f2610>
+
+In [6]: tf.Variable(tf.ones([]))
+Out[6]: <tensorflow.python.ops.variables.Variable at 0x7f7a4d656cd0>
 -}
+
+
+export -- tf.initialize_all_variables()
+initialize_all_variables : Op
+initialize_all_variables = MkOp . unsafePerformIO $ tf /. "initialize_all_variables" $. []
+
 
 {-
 -- __init__(
@@ -140,59 +513,83 @@ dtype=None)
 -}
 
 -------------------------
+-- Tensor transformations
+export -- tf.cast(x, dtype, name=None)
+cast : Tensor xs dt1 -> Tensor xs dt2
+cast (MkT x) {dt2=dt2} = MkT . unsafePerformIO $ tf /. "cast" $. [x, toTfType dt2]
+
+
+-------------------------
 -- Math
 
 export -- tf.abs(x, name=None)
 abs : Tensor xs dt -> Tensor xs dt
-abs (MkT x) = MkT . unsafePerformIO $ tf /. "abs" $. [x]
+abs = op1 "abs"
 
 export -- tf.add(x, y, name=None)
 add : Tensor xs dt -> Tensor xs dt -> Tensor xs dt
-add (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "add" $. [x, y]
+add  = op2 "add"
 
 export
 (+) : Tensor xs dt -> Tensor xs dt -> Tensor xs dt
 (+) = add
 
+export -- Broadcast add
+(+.) : Tensor xs dt -> Tensor ys dt -> Tensor (broadcast_dim xs ys) dt
+(+.) (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "add" $. [x, y]
+
 export -- tf.div(x, y, name=None)
 div : Tensor xs dt -> Tensor xs dt -> Tensor xs dt
-div (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "div" $. [x, y]
+div = op2 "div"
 
 export
 (/) : Tensor xs dt -> Tensor xs dt -> Tensor xs dt
 (/) = div
 
+export -- Broadcast division
+(/.) : Tensor xs dt -> Tensor ys dt -> Tensor (broadcast_dim xs ys) dt
+(/.) (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "div" $. [x, y]
+
 export -- tf.log(x, name=None)
 log : Tensor xs dt -> Tensor xs dt
-log (MkT x) = MkT . unsafePerformIO $ tf /. "log" $. [x]
+log = op1 "log"
 
 export -- tf.matmul(a, b, transpose_a=False, transpose_b=False, a_is_sparse=False, b_is_sparse=False, name=None) 
 matmul : Tensor [b, k] dt -> Tensor [k, a] dt -> Tensor [b, a] dt
 matmul (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "matmul" $. [x, y]
 
 export
-(*>)   : Tensor [b, k] dt -> Tensor [k, a] dt -> Tensor [b, a] dt
-(*>)   = matmul
+(*>) : Tensor [b, k] dt -> Tensor [k, a] dt -> Tensor [b, a] dt
+(*>) = matmul
 
 export -- tf.mul(x, y, name=None)
 mul : Tensor xs dt -> Tensor xs dt -> Tensor xs dt
-mul (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "mul" $. [x, y]
+mul = op2 "mul"
 
 export
 (*) : Tensor xs dt -> Tensor xs dt -> Tensor xs dt
 (*) = mul
 
+export -- Broadcast multipliation
+(*.) : Tensor xs dt -> Tensor ys dt -> Tensor (broadcast_dim xs ys) dt
+(*.) (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "mul" $. [x, y]
+
 export -- tf.neg(x, name=None)
 neg : Tensor xs dt -> Tensor xs dt
-neg (MkT x) = MkT . unsafePerformIO $ tf /. "neg" $. [x]
+neg = op1 "neg"
 
 export -- tf.sub(x, y, name=None)
 sub : Tensor xs dt -> Tensor xs dt -> Tensor xs dt
-sub (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "sub" $. [x, y]
+sub = op2 "sub"
 
 export
 (-) : Tensor xs dt -> Tensor xs dt -> Tensor xs dt
 (-) = sub
+
+export -- Broadcast subtract
+(-.) : Tensor xs dt -> Tensor ys dt -> Tensor (broadcast_dim xs ys) dt
+(-.) (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "sub" $. [x, y]
+
 
 -------------------------
 -- Reduction
@@ -270,11 +667,11 @@ cocnat = _
 
 export  -- tf.ones(shape, dtype=tf.float32, name=None)
 ones : Tensor xs dt
-ones {xs=xs} = MkT . unsafePerformIO $ tf /. "ones" $. [pyList xs]
+ones {xs=xs} {dt=dt} = MkT . unsafePerformIO $ tf /. "ones" $. [pyList xs, toTfType dt]
 
 export  -- tf.zeros(shape, dtype=tf.float32, name=None)
 zeros : Tensor xs dt
-zeros {xs=xs} = MkT . unsafePerformIO $ tf /. "zeros" $. [pyList xs]
+zeros {xs=xs} = MkT . unsafePerformIO $ tf /. "zeros" $. [pyList xs, toTfType dt]
 
 {-
  (dt : DType a) -> Vect r (Vect c a) -> Matrix r c dt
@@ -287,39 +684,64 @@ constant i  _ _ = _
 -------------------------
 -- Comparison operators
 
-export -- tf.greater(x, y, name=None)
-greater : Tensor xs dt -> Tensor xs dt -> Bool
-greater (MkT x) (MkT y) = unsafePerformIO $ tf /. "greater" $. [x, y]
+export -- tf.equal(x, y, name=None)
+equal : Tensor xs dt -> Tensor xs dt -> Tensor xs TFBool
+equal (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "equal" $. [x, y]
 
 export
-(>) : Tensor xs dt -> Tensor xs dt -> Bool
+(==) : Tensor xs dt -> Tensor xs dt -> Tensor xs TFBool
+(==) = equal
+
+export -- tf.not_equal(x, y, name=None)
+not_equal : Tensor xs dt -> Tensor xs dt -> Tensor xs TFBool
+not_equal (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "not_equal" $. [x, y]
+
+infixl 5 !=
+export
+(!=) : Tensor xs dt -> Tensor xs dt -> Tensor xs TFBool
+(!=) = not_equal
+
+export -- tf.greater(x, y, name=None)
+greater : Tensor xs dt -> Tensor xs dt -> Tensor xs TFBool
+greater (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "greater" $. [x, y]
+
+export
+(>) : Tensor xs dt -> Tensor xs dt -> Tensor xs TFBool
 (>) = greater
 
 export -- tf.greater_equal(x, y, name=None)
-greater_equal : Tensor xs dt -> Tensor xs dt -> Bool
-greater_equal (MkT x) (MkT y) = unsafePerformIO $ tf /. "greater_equal" $. [x, y]
+greater_equal : Tensor xs dt -> Tensor xs dt -> Tensor xs TFBool
+greater_equal (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "greater_equal" $. [x, y]
 
 export
-(>=) : Tensor xs dt -> Tensor xs dt -> Bool
+(>=) : Tensor xs dt -> Tensor xs dt -> Tensor xs TFBool
 (>=) = greater_equal
 
 export -- tf.less(x, y, name=None)
-less : Tensor xs dt -> Tensor xs dt -> Bool
-less (MkT x) (MkT y) = unsafePerformIO $ tf /. "less" $. [x, y]
+less : Tensor xs dt -> Tensor xs dt -> Tensor xs TFBool
+less (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "less" $. [x, y]
 
 export
-(<) : Tensor xs dt -> Tensor xs dt -> Bool
+(<) : Tensor xs dt -> Tensor xs dt -> Tensor xs TFBool
 (<) = less
 
 export -- tf.less_equal(x, y, name=None)
-less_equal : Tensor xs dt -> Tensor xs dt -> Bool
-less_equal (MkT x) (MkT y) = unsafePerformIO $ tf /. "less_equal" $. [x, y]
+less_equal : Tensor xs dt -> Tensor xs dt -> Tensor xs TFBool
+less_equal (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. "less_equal" $. [x, y]
 
 export
-(<=) : Tensor shape type -> Tensor shape type -> Bool
+(<=) : Tensor xs dt -> Tensor xs dt -> Tensor xs TFBool
 (<=) = less_equal
 
 
+-------------------------
+-- Sequence Comparison and Indexing
+
+-- TODO: Validate argmax for all input tensor shapes
+-- TODO: Consider if reduction arg type is better with (Tensor s1 Int32) or (List Nat)
+export -- tf.argmax(input, dimension, name=None)
+argmax : Tensor s0 dt -> (reduce_dims : List Nat) -> Tensor (reduce_reshape False reduce_dims s0) dt
+argmax (MkT x) reduce_dims = MkT . unsafePerformIO $ tf /. "argmax" $. [x, pyList reduce_dims]
 
 -------------------------
 -- Control flow
@@ -356,31 +778,12 @@ while_loop cond body vars parallelIterations backProp swapMemory
   = believe_me $ unsafePerformIO $ kludge /. "while_loop" $. [cond, body, vars, parallelIterations, backProp, swapMemory]
 -}
 
--------------------------
--- Datatypes
-toTfType : ElemType -> Obj TensorElemType_PS
-toTfType dt = case dt of
-         Float16 => unsafePerformIO $ tf /. "float16" $. []
-         Float32 => unsafePerformIO $ tf /. "float32" $. []
-         Float64 => unsafePerformIO $ tf /. "float64" $. []
-         Int8    => unsafePerformIO $ tf /. "int8" $. []
-         Int16   => unsafePerformIO $ tf /. "int16" $. []
-         Int32   => unsafePerformIO $ tf /. "int32" $. []
-         Int64   => unsafePerformIO $ tf /. "int64" $. []
-         UInt8   => unsafePerformIO $ tf /. "uint8" $. []
-         TFBool  => unsafePerformIO $ tf /. "bool" $. []
-         Complex64   => unsafePerformIO $ tf /. "complex64" $. []
-         Complex128   => unsafePerformIO $ tf /. "complex128" $. []
-         QInt8   => unsafePerformIO $ tf /. "qint8" $. []
-         QInt32  => unsafePerformIO $ tf /. "qint32" $. []
-         QUInt8  => unsafePerformIO $ tf /. "quint8" $. []
-
 
 -------------------------
 -- Placeholders
 export -- tf.placeholder(dtype, shape=None, name=None)
 placeholder : Tensor xs dt
-placeholder {dt=dt} = MkT . unsafePerformIO $ tf /. "placeholder" $. [toTfType dt]
+placeholder {xs=xs} {dt=dt} = MkT . unsafePerformIO $ tf /. "placeholder" $. [toTfType dt, pyList xs]
 
 
 ----------------------------------------------------------------------------------------------------
@@ -394,3 +797,4 @@ implementation Neg (Tensor [] dt) where
   negate = neg
   (-) = sub
   abs = Python.Lib.TensorFlow.Matrix.abs
+ 
