@@ -19,25 +19,17 @@ Tensor_PS f = case f of
 Tensor_P : Type
 Tensor_P = Obj Tensor_PS
 
-{-
+
 TensorElemType_PS : Signature
 TensorElemType_PS f = case f of
   _ => Object f
   
 TensorElemType_P : Type
 TensorElemType_P = Obj TensorElemType_PS
--- -}
 
--- {-
 TensorElemType : Type
 TensorElemType = String
--- -}
-{-
-     Obj Tensor_PS  cannot be a parameter of Prelude.Show.Show
-     (Implementation arguments must be injective)
-implementation Show Tensor_P where
-  show x = unsafePerformIO $ x /. "__str__" $. []
--}
+
 -------------------------------------------------- 
 -- Op type
 Op_PS : Signature
@@ -62,10 +54,6 @@ GraphElem_P = Obj GraphElem_PS
 
 Session_PS : Signature
 Session_PS f = case f of
- -- "run" => [GraphElem_P] ~~> GraphElem_P
- -- "run" => [Op_P] ~~> ()
- -- "run" => [Tensor_P] ~~> Obj Np.NDArray
- -- "run" => [List $ Tensor_P] ~~> (List $ Obj Np.NDArray)
  "run" => [Tensor_P, Dictionary_P (Tensor_P, Arr)] ~~> Np.Arr
  "close" => [] ~~> ()
  _ => Object f
@@ -73,17 +61,6 @@ Session_PS f = case f of
 
 Session_P : Type
 Session_P = Obj Session_PS
-
---------------------------------------------------
--- Variable type
-{-
-Variable : Signature
-Variable f = case f of
- "run" => [Tensor_P] ~~> Obj Np.NDArray
- "run'" => [List $ Tensor_P] ~~> (List $ Obj Np.NDArray)
- "close" => [] ~~> ()
- _ => Object f
--}
 
 -------------------------------------------------- 
 -- 
@@ -131,24 +108,6 @@ TensorFlow f = case f of
   "greater_equal" => [Tensor_P, Tensor_P] ~~> Tensor_P
   "less" => [Tensor_P, Tensor_P] ~~> Tensor_P
   "less_equal" => [Tensor_P, Tensor_P] ~~> Tensor_P
-
-  {-
-  -- Datatypes
-  "float16" => TensorElemType_P
-  "float32" => TensorElemType_P
-  "float64" => TensorElemType_P
-  "int8" => TensorElemType_P
-  "int16" => TensorElemType_P
-  "int32" => TensorElemType_P
-  "int64" => TensorElemType_P
-  "uint8" => TensorElemType_P
-  "bool" => TensorElemType_P
-  "complex64" => TensorElemType_P
-  "complex128" => TensorElemType_P
-  "qint8" => TensorElemType_P
-  "qint32" => TensorElemType_P
-  "quint8" => TensorElemType_P
-  -- -}
 
   -- Comparison operators
   "greater" => [Tensor_P, Tensor_P] ~~> Bool
