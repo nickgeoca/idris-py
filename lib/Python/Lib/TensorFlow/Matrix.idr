@@ -11,6 +11,8 @@ import Data.List.Quantifiers
 import Data.Vect.Quantifiers
 import Data.Vect
 
+import Control.Monad.State
+
 %access public export
 %default total
 
@@ -44,25 +46,32 @@ Shape : Type
 Shape = List Nat
 
 
+{-
 public export 
 record Tensor (shape : Shape) (dtype : ElemType) where
   constructor MkT
   tensor_p : Tensor_P
+-}
 
-TensorList : List (Shape, ElemType) -> Type 
-TensorList ts = All fn ts
-  where fn : (Shape, ElemType) -> Type
-        fn (xs,dt) = Tensor xs dt
+data Tensor : (shape : Shape) -> (dtype : ElemType) -> Type where
+    TensorCon      : Tensor_P   -> Tensor shape dtype
+    PlaceholderCon : Tensor_P   -> Tensor shape dtype
+    VariableCon    : Variable_P -> Tensor shape dtype
+
+toPyType : Tensor s dt -> Tensor_P
+toPyType (TensorCon x) = x
+toPyType (PlaceholderCon x) = x
+toPyType (VariableCon x) = believe_me x
+
+{-
+public export 
+record Placeholder (shape : Shape) (dtype : ElemType) where
+  constructor MkPlc
+  placeholder : Tensor shape dtype
+-}
 
 Tensors : {n : Nat} -> (dtTs : Vect n (Shape, ElemType)) -> Type
 Tensors {n=n} _ = Vect n Tensor_P
-
-TFCondition : List (Shape, ElemType) -> Type
-TFCondition a = TensorList a -> Bool
-
-TFBody : List (Shape, ElemType) -> Type
-TFBody a = TensorList a -> TensorList a 
-
 
 export 
 record Op where
@@ -85,14 +94,14 @@ private
 op1 : (f : String)
   -> {auto pf : TensorFlow f = [Tensor_P] ~~> Tensor_P}
   -> Tensor ls dt -> Tensor ls dt
-op1 f (MkT x) = MkT . unsafePerformIO $ tf /. f $. [x]
+op1 f x = TensorCon . unsafePerformIO $ tf /. f $. [toPyType x]
 
 
 private
 op2 : (f : String)
   -> {auto pf : TensorFlow f = [Tensor_P, Tensor_P] ~~> Tensor_P}
   -> Tensor ls dt -> Tensor ls dt -> Tensor ls dt
-op2 f (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. f $. [x, y]
+op2 f x y = TensorCon . unsafePerformIO $ tf /. f $. [toPyType x, toPyType y]
 
 private 
 unsafeTfSession : PIO (Session_P) -> Session
@@ -102,7 +111,9 @@ unsafeTfSession = MkS . unsafePerformIO
 
 
 implementation Show (Tensor xs dt) where
-  show (MkT x) = unsafePerformIO $ x /. "__str__" $. []
+  show (TensorCon x) = unsafePerformIO $ x /. "__str__" $. []
+  show (PlaceholderCon x) = unsafePerformIO $ x /. "__str__" $. []
+  show (VariableCon x) = unsafePerformIO $ x /. "__str__" $. []
 
 
 -------------------------
@@ -125,8 +136,8 @@ toTfType dt = case dt of
          Int64   => "int64"
          UInt8   => "uint8"
          TFBool  => "bool"
-         Complex64   => "complex64"
-         Complex128   => "complex128"
+         Complex64  => "complex64"
+         Complex128 => "complex128"
          QInt8   => "qint8"
          QInt32  => "qint32"
          QUInt8  => "quint8"
@@ -178,27 +189,29 @@ toSessionParam (shape, dtT, dtM) = (Tensor shape dtT, MatrixN shape dtM)
 Session_Params : Vect n (Shape, ElemType, NpElemType) -> Type
 Session_Params xs = All toSessionParam xs
 
-
+    
 export
 session : PIO Session
 session = do sess <- tf /. "Session" $. []
              return $ MkS sess
 
-export -- tf.Session.run(fetches, feed_dict=None, options=None, run_metadata=None)
+||| tf.Session.run(fetches, feed_dict=None, options=None, run_metadata=None)
+export 
 run : PIO Session 
-   -> Tensor xs dt
-   -> (Tensors dtTs, Matrices dtMs)  -- Placeholders
+   -> (fetches   : Tensor xs dt)
+   -> (feed_dict : (Tensors dtTs, Matrices dtMs))
    -> PIO (MatrixN xs $ cast dt)
-run sessM (MkT fetch) phs = 
+run sessM fetch phs = 
   do sess <- sessM
-     m <- (session_p sess) /. "run" $. [fetch, feed_dict]
+     m <- (session_p sess) /. "run" $. [toPyType fetch, feed_dict]  -- BUG: fetch should not be a placeholder
      return $ MkM' m
   where
   tensorList : List Tensor_P
-  tensorList = cast $ fst phs
   matrixList : List Arr
-  matrixList = cast $ snd phs
   feed_dict : Dictionary_P (Tensor_P, Arr) 
+
+  tensorList = cast $ fst phs
+  matrixList = cast $ snd phs
   feed_dict = dict $ pyDictionary $ zip tensorList matrixList
 
 export 
@@ -210,15 +223,140 @@ close sM = do s <- sM
 -------------------------
 -- Variable
 
-export -- tf.Variable.__init__(initial_value=None, trainable=True, collections=None, validate_shape=True, caching_device=None, name=None, variable_def=None, dtype=None)
-variable : Tensor xs dt -> Tensor xs dt
-variable (MkT initial_value) = MkT . unsafePerformIO $ tf /. "Variable" $. [initial_value]
+------------
+data PlaceholderParam (shape : Shape) (dt : ElemType) where
+  tensorPlaceholder : Maybe $ Tensor shape dt
+  matrixPlaceholder : MatrixN shape (cast dt)
 
+data TFP where
+  x : (Maybe $ Tensor [2] Float32, MatrixN [2] NpFloat32)
+  y : (Maybe $ Tensor []  Float32, MatrixN []  NpFloat32)
+
+TFV : (variables : Vect n (Shape, ElemType)) 
+   -> Type
+TFV {n=n} _ = Vect n Tensor_P
+
+{-
+TFV : {n : Nat} -> (dtTs : Vect n (Shape, ElemType)) -> Type
+TFV {n=n} _ = Vect n Tensor_P
+-- Tensors {n=n} _ = Vect n Tensor_P
+data TFV (List (Shape, ElemType)) where
+  variables : List (Tensor_P, (Shape, ElemType))
+  x : PlaceholderParam [] Float32
+data TF_PVs where
+--  placeholders : List ((Maybe Tensor_P, Matrix_P), (Shape, ElemType))
+  placeholders : Placeholders
+  variables : List (Tensor_P, (Shape, ElemType))
+Tensors : List (Shape, ElemType) 
+       -> Type
+Tensors _ = List Tensor_P
+-}
+
+------
+https://eb.host.cs.st-andrews.ac.uk/drafts/eff-tutorial.pdf
+https://github.com/idris-lang/Idris-dev/blob/master/libs/effects/Effect/StdIO.idr
+http://docs.idris-lang.org/en/latest/effects/state.html
+https://vimeo.com/123606435
+ERROR THIS LINE OF CODE!!!!        -> PyState (TFP, TFV) (Tensor xs dt)
+
+PyState : (state : Type)
+       -> (type  : Type)
+       -> Type
+PyState s a = StateT s PIO a
+
+||| tf.Variable.__init__(initial_value=None, trainable=True, collections=None, validate_shape=True, caching_device=None, name=None, variable_def=None, dtype=None)
+||| @ initial_value can be placeholder, variable, or regular tensor
+export 
+variable : (initial_value : Tensor xs dt) 
+        -> PyState (TFP, TFV) (Tensor xs dt)
+variable initial_value = pure $ VariableCon . unsafePerformIO $ tf /. "Variable" $. [toPyType initial_value]
+-- variable : (initial_value : Tensor xs dt) -> PyState (Tensor xs dt)
+-- variable initial_value = pure $ VariableCon . unsafePerformIO $ tf /. "Variable" $. [toPyType initial_value]
 
 export -- tf.initialize_all_variables()
 initialize_all_variables : Op
 initialize_all_variables = MkOp . unsafePerformIO $ tf /. "initialize_all_variables" $. []
 
+-- TensorFlow ops should all be in the PIO monad b/c they are all potentially mutable with Variable tensor
+-- it0 *
+-- while_loop
+--  
+
+{-
+How to handle immutable and mutalbe tensors
+ * value       imut - ones
+ * placeholder mut  - t <- pure ones
+ * variable    mut  - t <- pure ones
+Is a Variable just a pointer?
+-}
+
+
+
+{-
+Value       - ImmutTensor : T
+Variable    - MutabTensor : t <- (PIO T)
+Placeholder - ParamTensor : t <- (M -> PIO T) matrix
+-}
+
+
+data VariableTensor : (x : Tensor shape dt) -> Type where
+    IsVariableTensor : VariableTensor (VariableCon x)
+
+fn : PIO (ls : List t ** NonEmpty ls) -> PIO ()  
+fn = believe_me
+
+||| tf.Variable.assign(value, use_locking=False)
+export 
+assign : PIO (variable : (Tensor xs dt) ** VariableTensor variable)
+      ->     (value    : Tensor xs dt) 
+      -> PIO ()
+  = var /. "assign" $. [toPyType val] 
+assign _ _ {ok=p} impossible
+
+
+
+--  = pure $ VariableCon . unsafePerformIO $ var /. "assign" $. [toPyType val] 
+
+{-
+assign : PIO $ Tensor xs dt
+      -> value : Tensor xs dt) 
+      -> {auto ok  : VariableTensor variable}
+      -> PIO ()
+-}
+
+{-
+data Tensor_ : (shape : Shape) -> (dtype : ElemType) -> Type where
+    Tensor'      : Tensor_P -> Tensor_ shape dtype
+    Placeholder' : Tensor_P -> Tensor_ shape dtype
+    Variable     : Tensor_P -> Tensor_ shape dtype
+-}
+{-
+ -The fetches argument may be 
+ - * a single graph element 
+ - * a list of graph elements
+ - * a dictionary whose values are the above
+ -The type of fetches determines the return value of this method. 
+ -A graph element can be one of the following types:
+ - * If an element of fetches is an Operation, the corresponding fetched value will be None.
+ - * If an element of fetches is a Tensor, the corresponding fetched value will be a numpy ndarray containing the value of that tensor.
+ - * If an element of fetches is a SparseTensor, the corresponding fetched value will be a SparseTensorValue containing the value of that sparse tensor.
+ - * If an element of fetches is produced by a get_tensor_handle op, the corresponding fetched value will be a numpy ndarray containing the handle of that tensor.
+ -data GraphElem = GEOp | GET (Tensor xs dt) | GEST (STensor xs dt) | 
+ -data Fetches = FetchL (List GraphElem) | Fetch GraphElem | Fetch
+ -data FetchesIn  = FIO Op              | FIT (Tensor xs dt) | FIS (STensor xs dt)  | get_tensor_handle op
+ -data FetchesOut = Nil                 | FOT (MatrixN xs dt)| FOS (STensorV xs dt) | handle of tensor (MatrixN xs dt)
+ -List (Just )
+ --}
+
+{-
+  do sess <- sessM
+     m <- (session_p sess) /. "run" $. [fetch, feed_dict] 
+     return $ MkM' m
+
+export -- tf.gradients(ys, xs, grad_ys=None, name='gradients', colocate_gradients_with_ops=False, gate_gradients=False, aggregation_method=None)
+gradients : 
+tf.gradients(ys, xs, grad_ys=None, name='gradients', colocate_gradients_with_ops=False, gate_gradients=False, aggregation_method=None)
+-- -}
 
 -------------------------
 -- Tensor transformations
@@ -454,12 +592,29 @@ while_loop cond body vars parallelIterations backProp swapMemory
   = believe_me $ unsafePerformIO $ kludge /. "while_loop" $. [cond, body, vars, parallelIterations, backProp, swapMemory]
 -}
 
-
 -------------------------
 -- Placeholders
 export -- tf.placeholder(dtype, shape=None, name=None)
-placeholder : Tensor xs dt
-placeholder {xs=xs} {dt=dt} = MkT . unsafePerformIO $ tf /. "placeholder" $. [toTfType dt, pyList xs]
+placeholder : (accessor : (TFP -> Tensorxs xs dt))
+           -> PyState (TFP, TFV) (Tensor xs dt)
+placeholder {xs=xs} {dt=dt} accessor = 
+  do t <- lift $ pure $ MkT . unsafePerformIO $ tf /. "placeholder" $. [toTfType dt, pyList xs]
+     updatePlaceholders accessor t   
+     pure t
+  where
+  updatePlaceholders : (TFP -> Tensorxs xs dt) 
+                    -> Tensor xs dt
+                    -> PyState (TFP, TFV) (Tensor xs dt)
+  updatePlaceholders accessor t = 
+    do pvs <- get 
+       let ps = record {accessor = Just t} $ fst pvs
+           vs = snd pvs
+       put (ps, vs)
+      
+
+-- placeholder : PIO (Tensor xs dt)
+-- placeholder {xs=xs} {dt=dt} = pure $ MkT . unsafePerformIO $ tf /. "placeholder" $. [toTfType dt, pyList xs]
+
 
 
 ----------------------------------------------------------------------------------------------------
