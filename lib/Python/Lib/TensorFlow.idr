@@ -10,7 +10,7 @@ import Data.Erased
 
 
 -------------------------------------------------- 
--- Tensor types
+-- Tensor 
 Tensor_PS : Signature
 Tensor_PS f = case f of
   "__str__" => [] ~~> String
@@ -19,16 +19,23 @@ Tensor_PS f = case f of
 Tensor_P : Type
 Tensor_P = Obj Tensor_PS
 
-
-TensorElemType_PS : Signature
-TensorElemType_PS f = case f of
-  _ => Object f
-  
-TensorElemType_P : Type
-TensorElemType_P = Obj TensorElemType_PS
-
+-------------------------------------------------- 
+-- Tensor Element
 TensorElemType : Type
 TensorElemType = String
+
+-------------------------------------------------- 
+-- Tensor Variable
+Variable_PS : Signature
+Variable_PS f = case f of
+  "__str__" => [] ~~> String
+  "assign"  => [Tensor_P] ~~> ()
+  _ => Object f
+
+Variable_P : Type
+Variable_P = Obj Variable_PS
+
+
 
 -------------------------------------------------- 
 -- Op type
@@ -70,12 +77,11 @@ TensorFlow f = case f of
   "Session" => [] ~~> Session_P
 
   -- Variable
-  "Variable" => [Tensor_P] ~~> Tensor_P
+  "Variable" => [Tensor_P] ~~> Variable_P
   "initialize_all_variables" => [] ~~> Op_P
 
   -- Tensor transformations
   "cast" => [Tensor_P, TensorElemType] ~~> Tensor_P
-
 
   -- Math
   "abs"  => [Tensor_P] ~~> Tensor_P
