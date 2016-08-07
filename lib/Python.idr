@@ -37,16 +37,3 @@ getGlobal : (name : String) -> Obj sig
 getGlobal {sig=sig} name =
   unsafePerformIO $
     foreign FFI_Py "_idris_get_global" (String -> PIO (Obj sig)) name
-
-
--- Remove this too: import public Data.List.Quantifiers
-implementation (Show (fn t), Show (All fn ts)) => Show (All fn (t::ts)) where
-  show {t=t} {ts=ts} {fn=fn} (x::xs) = left ++ right
-    where 
-    left  = show $ the (fn t) x
-    right = show $ the (All fn ts) xs
-
-implementation Show (All fn Nil) where
-  show Nil = ""
-
-
