@@ -77,7 +77,8 @@ TensorFlow f = case f of
   "Session" => [] ~~> Session_P
 
   -- Variable
-  "Variable" => [Tensor_P] ~~> Variable_P
+  -- "Variable" => [Tensor_P] ~~> Variable_P -- BUG: Resolve this
+  "Variable" => [Tensor_P] ~~> Tensor_P
   "initialize_all_variables" => [] ~~> Op_P
 
   -- Tensor transformations
