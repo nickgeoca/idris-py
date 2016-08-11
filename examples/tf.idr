@@ -1,10 +1,17 @@
+import Effects
+
 import Data.Vect
+
 import Python
 import Python.Prim
+import Python.IO
+import Python.PyIO
 import Python.Lib.TensorFlow
 import Python.Lib.Numpy
 import Python.Lib.TensorFlow.Matrix
 import Python.Lib.Numpy.Matrix
+
+
 
 %default total
 
@@ -13,7 +20,7 @@ empty : (Tensors [], Matrices [])
 empty = ([],[])
 
 -- Miscelaneous functions
-printOp : Tensor xs dt -> PIO ()
+printOp : Tensor xs dt -> Eff () [PYIO]
 printOp op = do rslt <- run {dtTs=v} {dtMs=cast v} session op empty 
                 printLn' rslt
   where
@@ -23,7 +30,7 @@ printOp op = do rslt <- run {dtTs=v} {dtMs=cast v} session op empty
 
 --------------------------------------------------
 -- basics test
-test_basics : PIO ()
+test_basics : Eff () [PYIO]
 test_basics = do printLn' x
                  printOp x
   where
@@ -39,7 +46,7 @@ Tensor("ones:0", shape=(3, 4), dtype=float32)
 
 --------------------------------------------------
 -- arithmetic test
-test_arithmetic : PIO ()
+test_arithmetic : Eff () [PYIO]
 test_arithmetic =
   do printOp $ z
      printOp $ x + x
@@ -63,7 +70,7 @@ test_arithmetic =
 
 --------------------------------------------------
 -- reduce_<fns> test
-test_reduce : PIO ()
+test_reduce : Eff () [PYIO]
 test_reduce = 
   do printOp $ reduce_mean x [0,1] True
      printOp $ reduce_mean x [0] False
@@ -89,9 +96,9 @@ test_reduce =
 
 --------------------------------------------------
 -- arithmetic run
-test_run : PIO ()
+test_run : Eff () [PYIO]
 test_run =
-  do tp <- pure $ placeholder 
+  do tp <- placeholder 
      rslt <- run {dtTs=v} {dtMs=cast v} session (ones + tp) (params tp)
      printLn' rslt
   where
@@ -101,23 +108,22 @@ test_run =
 
   m0 = full 3.14
   v = [([2,2], Float32)]
-  params t = ([tensor_p t],[arr' m0])
+  params (MkT t) = ([t],[arr' m0])
 
 {-
 [[ 4.14000034  4.14000034]
  [ 4.14000034  4.14000034]]
 -}
 
-
 --------------------------------------------------
 -- main
 
 main : PIO ()
-main = do test_basics
-          test_arithmetic
-          test_reduce
-          test_run
-
+main = run (do test_basics
+               test_arithmetic
+               test_reduce
+               test_run)
+--}
 
 {-
 fn2 : PIO (MatrixN [3,3] DDouble)

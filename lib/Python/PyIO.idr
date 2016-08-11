@@ -23,7 +23,6 @@ Python.Prim
 --------------------------------------------------
 -- Setup Effects for PIO
 -- 1
-export
 data PyIO : Effect where
   DuckTypeFnCall : (f : Obj pySig)
                 -> {auto pf : pySig "__call__" = Call t}
@@ -34,7 +33,6 @@ data PyIO : Effect where
                 -> sig PyIO ()
 
 -- 2
-export
 implementation Handler PyIO PIO where
   handle () (DuckTypeFnCall f args) k = do x <- f $. args
                                            k x ()
@@ -43,7 +41,6 @@ implementation Handler PyIO PIO where
 
 
 -- 3
-export
 PYIO : EFFECT
 PYIO = MkEff () PyIO
 
@@ -51,7 +48,6 @@ PYIO = MkEff () PyIO
 namespace PYIO
   infixl 4 $>  -- TODO: Is it better to give this the ($.) name? Or stick w/ alternate ($>)?
   ||| This is the PIO equivilent to $.
-  export
   ($>) : (f : Obj pySig)
       -> {auto pf : pySig "__call__" = Call t}
       -> (args : a)
@@ -69,17 +65,14 @@ export
 ($:) meth args = meth >>= \m => m $. args
 -}
 
-export
 putStr' : String -> Eff () [PYIO]
 putStr' s = call $ PutStr' s
 
-export 
 putStrLn' : String -> Eff () [PYIO]
 putStrLn' s = putStr' (s ++ "\n")
 
 ||| Output something showable to stdout, with a trailing newline, for any FFI
 ||| descriptor
-export
 printLn' : Show ty => ty -> Eff () [PYIO]
 printLn' a = putStrLn' (show a)
 
