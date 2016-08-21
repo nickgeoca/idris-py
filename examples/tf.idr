@@ -1,4 +1,5 @@
 import Effects
+import Effect.State
 
 import Data.Vect
 
@@ -11,23 +12,35 @@ import Python.Lib.Numpy
 import Python.Lib.TensorFlow.Matrix
 import Python.Lib.Numpy.Matrix
 
-
-
 %default total
 
 
+--------------------------------------------------
+-- Placeholders
+
+-- Minimal code to make placeholders
+-- 1. Create: record Placeholders where
+-- 2. Create: implementation ToPyPlaceholders Placeholders where
+
+record Placeholders where
+  constructor    MkPhs
+  X1 : Placeholder [2,2] Float32
+  X2 : Placeholder [] Float32
+
+implementation ToPyPlaceholders Placeholders where
+  toPyPlaceholders (MkPhs x1 x2) = x1 # x2 # []
+
+--------------------------------------------------
+-- Miscelaneous functions
 empty : (Tensors [], Matrices [])
 empty = ([],[])
 
--- Miscelaneous functions
-printOp : Tensor xs dt -> Eff () [PYIO]
-printOp op = do rslt <- run {dtTs=v} {dtMs=cast v} session op empty 
+
+printOp : ToPyPlaceholders phs => Tensor xs dt -> Eff () [STATE phs, PYIO] 
+printOp op = do rslt <- run session op
                 printLn' rslt
-  where
-  v : Vect 0 (Shape, ElemType)
-  v = []
 
-
+{-
 --------------------------------------------------
 -- basics test
 test_basics : Eff () [PYIO]
@@ -94,37 +107,42 @@ test_reduce =
 [[ 12.]]
 -}
 
+-}
+
 --------------------------------------------------
 -- arithmetic run
-test_run : Eff () [PYIO]
+test_run : Eff () [STATE Placeholders, PYIO] --  [STATE phs, PYIO]
 test_run =
-  do tp <- placeholder 
-     rslt <- run {dtTs=v} {dtMs=cast v} session (ones + tp) (params tp)
-     printLn' rslt
-  where
-  m0 : MatrixN [2,2] Float32
-  v : Vect 1 (Shape, ElemType)
-  params : Tensor [2,2] Float32 -> (Tensors v, Matrices (cast v))
-
-  m0 = full 3.14
-  v = [([2,2], Float32)]
-  params (MkT t) = ([t],[arr' m0])
+  do x1 <- placeholder X1 set_X1
+     x2 <- placeholder X2 set_X2
+     printOp (x2 +. (ones + x1))
 
 {-
-[[ 4.14000034  4.14000034]
- [ 4.14000034  4.14000034]]
+[[ 5.14000034  5.14000034]
+ [ 5.14000034  5.14000034]]
 -}
+
 
 --------------------------------------------------
 -- main
 
 main : PIO ()
+main = runInit [phs, ()] (do test_run)
+  where
+  phs : Placeholders
+  phs = MkPhs (MkPh Nothing $ full 3.14)
+              (MkPh Nothing $ full 1)
+
+
+{-
 main = run (do test_basics
                test_arithmetic
                test_reduce
                test_run)
---}
 
+-}
+
+--------------------------------------------------
 {-
 fn2 : PIO (MatrixN [3,3] DDouble)
 fn2 = run session z

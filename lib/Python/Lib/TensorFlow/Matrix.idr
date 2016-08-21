@@ -1,6 +1,7 @@
 module Python.Lib.TensorFlow.Matrix
 
 import Effects
+import Effect.State
 
 import Data.List.Quantifiers
 import Data.Vect.Quantifiers
@@ -72,23 +73,6 @@ unwrapSess : Session -> Session_P
 unwrapSess s = case s of 
                (MkS s') => s'
 
--- Fn
-private
-tf : Obj TensorFlow
-tf = unsafePerformIO TensorFlow.import_
-
-private
-op1 : (f : String)
-  -> {auto pf : TensorFlow f = [Tensor_P] ~~> Tensor_P}
-  -> Tensor ls dt -> Tensor ls dt
-op1 f (MkT x) = MkT . unsafePerformIO $ tf /. f $. [x]
-
-
-private
-op2 : (f : String)
-  -> {auto pf : TensorFlow f = [Tensor_P, Tensor_P] ~~> Tensor_P}
-  -> Tensor ls dt -> Tensor ls dt -> Tensor ls dt
-op2 f (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. f $. [x, y]
 
 -- private 
 -- unsafeTfSession : PIO (Session_P) -> Session
@@ -167,6 +151,44 @@ implementation Cast (Vect n a) (List a) where
   cast (x::xs) = the (List a) $ x :: cast xs
   cast [] = []
 
+-- Placeholders
+record Placeholder (shape : Shape) (dt : ElemType) where
+  constructor    MkPh
+  tPlaceholder : Maybe $ Tensor shape dt
+  mPlaceholder : MatrixN shape (cast dt)
+
+infixr 5 #
+||| Help convert the Placeholder record to a list. 
+||| Ex: toListTuples (MkPhs x1 x2) = x1 # x2 # []
+export
+(#) : Placeholder xs dt -> List (Tensor_P, Arr) -> List (Tensor_P, Arr)
+(#) (MkPh (Just (MkT t)) (MkM' m)) ls = (t, m) :: ls
+(#) (MkPh Nothing _) ls = ls
+
+
+export
+interface ToPyPlaceholders a where                 -- TODO: Consider doing this instead: ToListTuples Placeholders (Tensor_P, Arr)
+  toPyPlaceholders : a -> List (Tensor_P, Arr)         -- Obj Tensor_PS  cannot be a parameter of ToListTuples
+                                                   --     (Implementation arguments must be type or data constructors)
+
+-- Fn
+private
+tf : Obj TensorFlow
+tf = unsafePerformIO TensorFlow.import_
+
+private
+op1 : (f : String)
+  -> {auto pf : TensorFlow f = [Tensor_P] ~~> Tensor_P}
+  -> Tensor ls dt -> Tensor ls dt
+op1 f (MkT x) = MkT . unsafePerformIO $ tf /. f $. [x]
+
+
+private
+op2 : (f : String)
+  -> {auto pf : TensorFlow f = [Tensor_P, Tensor_P] ~~> Tensor_P}
+  -> Tensor ls dt -> Tensor ls dt -> Tensor ls dt
+op2 f (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. f $. [x, y]
+
 -------------------------
 -- Session
 tensorToMatrix : List (Shape, ElemType) -> List (Shape, NpElemType)
@@ -189,24 +211,19 @@ session = MkS <$> (tf /. "Session" $> [])
 
 ||| tf.Session.run(fetches, feed_dict=None, options=None, run_metadata=None)
 export 
-run : Eff Session [PYIO]
-   -> (fetch     : Tensor xs dt)
-   -> (feed_dict : (Tensors dtTs, Matrices dtMs))
-   -> Eff (MatrixN xs $ cast dt) [PYIO]
-run sessM_ (MkT fetch) phs = 
-  do matrix <- !sessM /. "run" $> [fetch, feed_dict]  -- BUG: fetch should not be a placeholder
-     pure $ MkM' matrix
+run : (ToPyPlaceholders phs) 
+   => Eff Session [PYIO]
+   -> (fetch : Tensor xs dt)
+   -> Eff (MatrixN xs $ cast dt) [STATE phs, PYIO]
+run sessM_ (MkT fetch) = 
+  do placeholders <- get
+     MkM' <$> (!sessM /. "run" $> [fetch, feed_dict placeholders])  -- BUG: fetch should not be a placeholder
   where
-  tensorList : List Tensor_P
-  matrixList : List Arr
-  feed_dict : Dictionary_P (Tensor_P, Arr) 
   sessM : Eff Session_P [PYIO]
-
-  tensorList = cast $ fst phs
-  matrixList = cast $ snd phs
-  feed_dict = dict $ pyDictionary $ zip tensorList matrixList
   sessM = unwrapSess <$> sessM_
 
+  feed_dict : (ToPyPlaceholders phs) => phs -> Dictionary_P (Tensor_P, Arr) 
+  feed_dict phs = dict $ pyDictionary $ toPyPlaceholders phs
 
 
 export 
@@ -467,33 +484,27 @@ while_loop cond body vars parallelIterations backProp swapMemory
 -------------------------
 -- Placeholders
 
-export -- tf.placeholder(dtype, shape=None, name=None)
-placeholder : Eff (Tensor xs dt) [PYIO]
-placeholder {xs=xs} {dt=dt} = MkT <$> (tf /. "placeholder" $> [toTfType dt, pyList xs])
+private
+getUpdatedPlaceholder : Tensor xs dt 
+                     -> (getPh : (phs -> Placeholder xs dt))
+                     -> Eff (Placeholder xs dt) [STATE phs] [STATE phs]
+getUpdatedPlaceholder t getPh = 
+  do phs <- get
+     pure $ case (getPh phs) of
+               MkPh _ m => MkPh (Just t) m
 
-
-{-
 export -- tf.placeholder(dtype, shape=None, name=None)
-placeholder : (accessor : (TFP -> Tensorxs xs dt))
-           -> PyState (TFP, TFV) (Tensor xs dt)
-placeholder {xs=xs} {dt=dt} accessor = 
-  do t <- lift $ pure $ MkT . unsafePerformIO $ tf /. "placeholder" $. [toTfType dt, pyList xs]
-     updatePlaceholders accessor t   
-     pure t
+placeholder : (getPh : (phs -> Placeholder xs dt))
+           -> (setPh : (Placeholder xs dt -> phs -> phs))
+           -> Eff (Tensor xs dt) [STATE phs, PYIO] [STATE phs, PYIO]
+placeholder {xs=xs} {dt=dt} getPh setPh =
+  do tfPlaceholder <- pyGetTFPlaceholder
+     ph <- getUpdatedPlaceholder tfPlaceholder getPh
+     updateM $ setPh ph
+     pure tfPlaceholder
   where
-  updatePlaceholders : (TFP -> Tensorxs xs dt) 
-                    -> Tensor xs dt
-                    -> PyState (TFP, TFV) (Tensor xs dt)
-  updatePlaceholders accessor t = 
-    do pvs <- get 
-       let ps = record {accessor = Just t} $ fst pvs
-           vs = snd pvs
-       put (ps, vs)
-      
--}
--- placeholder : PIO (Tensor xs dt)
--- placeholder {xs=xs} {dt=dt} = pure $ MkT . unsafePerformIO $ tf /. "placeholder" $. [toTfType dt, pyList xs]
-
+  pyGetTFPlaceholder : Eff (Tensor xs dt) [PYIO]
+  pyGetTFPlaceholder = MkT <$> (tf /. "placeholder" $> [toTfType dt, pyList xs])
 
 
 ----------------------------------------------------------------------------------------------------
