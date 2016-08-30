@@ -19,5 +19,6 @@ modules = Python
 	, Python.Lib.TensorFlow
 	, Python.Lib.TensorFlow.Matrix
 	, Python.Lib.TensorFlow.NN
+	, Python.Lib.Kanu
 
 pkgs = effects
