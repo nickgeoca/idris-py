@@ -47,6 +47,14 @@ Op_PS f = case f of
 Op_P : Type
 Op_P = Obj Op_PS
 
+-------------------------------------------------- 
+-- Fetch type
+Fetch_PS : Signature
+Fetch_PS f = case f of
+  _ => Object f
+
+Fetch_P : Type
+Fetch_P = Obj Fetch_PS
 
 --------------------------------------------------
 -- Session type
@@ -61,10 +69,9 @@ GraphElem_P = Obj GraphElem_PS
 
 Session_PS : Signature
 Session_PS f = case f of
- "run" => [Tensor_P, Dictionary_P (Tensor_P, Arr)] ~~> Np.Arr
+ "run" => [Fetch_P, Dictionary_P (Tensor_P, Arr)] ~~> Fetch_P -- NOTE: The return on this signature is incorrect and must be cast.
  "close" => [] ~~> ()
  _ => Object f
-
 
 Session_P : Type
 Session_P = Obj Session_PS
@@ -77,8 +84,9 @@ TensorFlow f = case f of
   "Session" => [] ~~> Session_P
 
   -- Variable
-  -- "Variable" => [Tensor_P] ~~> Variable_P -- BUG: Resolve this
-  "Variable" => [Tensor_P] ~~> Tensor_P
+  "Variable" => [Tensor_P, TensorElemType] ~~> Tensor_P
+
+  -- Ops
   "initialize_all_variables" => [] ~~> Op_P
 
   -- Tensor transformations

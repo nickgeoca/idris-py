@@ -170,6 +170,8 @@ export
 interface ToPyPlaceholders a where                 -- TODO: Consider doing this instead: ToListTuples Placeholders (Tensor_P, Arr)
   toPyPlaceholders : a -> List (Tensor_P, Arr)         -- Obj Tensor_PS  cannot be a parameter of ToListTuples
                                                    --     (Implementation arguments must be type or data constructors)
+implementation ToPyPlaceholders () where
+  toPyPlaceholders () = []
 
 -- Fn
 private
@@ -209,30 +211,68 @@ session : Eff Session [PYIO]
 session = MkS <$> (tf /. "Session" $> [])
 
 
-||| tf.Session.run(fetches, feed_dict=None, options=None, run_metadata=None)
+{- Fetches
+Op -> ()
+Tensor -> Matrix
+SparseTensor -> SparseTensorValue
+?? get_tensor_handle op. The corresponding fetched value will be a numpy ndarray containing the handle of that tensor.
+String -> Matrix -- A string which is the name of a tensor or operation in the graph.
+-}
+
+namespace t
+  ||| tf.Session.run(fetches, feed_dict=None, options=None, run_metadata=None)
+  ||| feed_dict (phs) is passed as a parameter. See runM
+  ||| @ phs (feed_dict) Passed as a parameter. In the TF python API it is called feed_dict. For now it is refered to as placeholders.
+  export 
+  run : (ToPyPlaceholders phs) 
+     => Session
+     -> (fetch : Tensor xs dt)
+     -> phs
+     -> Eff (MatrixN xs $ cast dt) [PYIO]
+  run (MkS sess) (MkT fetch) placeholders = 
+    do m <- sess /. "run" $> [believe_me fetch, feed_dict placeholders]  -- NOTE: fetch should not be a placeholder
+       return $ MkM' (believe_me  m)
+    where
+    feed_dict : (ToPyPlaceholders phs) => phs -> Dictionary_P (Tensor_P, Arr) 
+    feed_dict phs = dict $ pyDictionary $ toPyPlaceholders phs
+
+  ||| tf.Session.run(fetches, feed_dict=None, options=None, run_metadata=None)
+  ||| feed_dict (phs) is passed as effect State. See run
+  ||| @ phs (feed_dict) Passed as effect State. In the TF python API it is called feed_dict. For now it is refered to as placeholders.
+  export 
+  runM : (ToPyPlaceholders phs) 
+     => Session
+     -> (fetch : Tensor xs dt)
+     -> Eff (MatrixN xs $ cast dt) [STATE phs, PYIO]
+  runM (MkS sess) (MkT fetch) = 
+    do placeholders <- get
+       m <- sess /. "run" $> [believe_me fetch, feed_dict placeholders]  -- BUG: fetch should not be a placeholder
+       return $ MkM' (believe_me m)
+    where
+    feed_dict : (ToPyPlaceholders phs) => phs -> Dictionary_P (Tensor_P, Arr) 
+    feed_dict phs = dict $ pyDictionary $ toPyPlaceholders phs
+
+namespace op
+  export 
+  run : Session -> Op -> Eff () [PYIO]
+  run (MkS sess) (MkOp fetch) = 
+    do sess /. "run" $> [believe_me fetch, feed_dict] 
+       return ()
+    where
+    feed_dict : Dictionary_P (Tensor_P, Arr) 
+    feed_dict = dict $ pyDictionary $ toPyPlaceholders ()
+
+
 export 
-run : (ToPyPlaceholders phs) 
-   => Eff Session [PYIO]
-   -> (fetch : Tensor xs dt)
-   -> Eff (MatrixN xs $ cast dt) [STATE phs, PYIO]
-run sessM_ (MkT fetch) = 
-  do placeholders <- get
-     MkM' <$> (!sessM /. "run" $> [fetch, feed_dict placeholders])  -- BUG: fetch should not be a placeholder
-  where
-  sessM : Eff Session_P [PYIO]
-  sessM = unwrapSess <$> sessM_
+close : Session
+     -> Eff () [PYIO] 
+close (MkS sess) = sess /. "close" $> []
 
-  feed_dict : (ToPyPlaceholders phs) => phs -> Dictionary_P (Tensor_P, Arr) 
-  feed_dict phs = dict $ pyDictionary $ toPyPlaceholders phs
-
-
-export 
-close : Eff Session [PYIO]
-     -> Eff ()      [PYIO] 
-close sessM_ = !sessM /. "close" $> []
-  where
-  sessM : Eff Session_P [PYIO]
-  sessM = unwrapSess <$> sessM_
+-------------------------
+-- Ops
+export
+initialize_all_variables : Op
+initialize_all_variables = MkOp . unsafePerformIO $ tf /. "initialize_all_variables" $. []
 
 -------------------------
 -- Variable
@@ -242,7 +282,7 @@ close sessM_ = !sessM /. "close" $> []
 export 
 variable : (initial_value : Tensor xs dt) 
         -> Eff (Tensor xs dt) [PYIO]
-variable (MkT initial_value) = MkT <$> (tf /. "Variable" $> [initial_value])
+variable {dt=dt} (MkT initial_value) = MkT <$> (tf /. "Variable" $> [initial_value, toTfType dt])
 
 
 ------------
