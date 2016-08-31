@@ -89,9 +89,14 @@ Numpy f = case f of
   "complex64" => [] ~~> NpElemType_P
   "complex128" => [] ~~> NpElemType_P
 
-
-
   _ => Module f
+
+
+NumpyRandom : Signature
+NumpyRandom f = case f of
+  "randint" => [Int] ~~> Int
+  _ => Module f
+
 
 import_ : PIO $ Obj Numpy
 import_ = importModule "numpy"
