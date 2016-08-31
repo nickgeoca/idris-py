@@ -285,6 +285,17 @@ variable : (initial_value : Tensor xs dt)
 variable {dt=dt} (MkT initial_value) = MkT <$> (tf /. "Variable" $> [initial_value, toTfType dt])
 
 
+-- TODO: Constrain type to floating point
+-- tf.random_uniform_initializer(minval=0.0, maxval=1.0, seed=None, dtype=tf.float32)
+export
+random_uniform_initializer : (minval : Double)
+                          -> (maxval : Double)
+                          -> (seed   : Int)
+                          -> Tensor shape dt
+random_uniform_initializer minval maxval seed {shape=shape} {dt=dt}
+  = let fn = (tf /. "random_uniform_initializer" $. [minval, maxval, seed, toTfType dt])
+    in  MkT . unsafePerformIO $ fn $: [pyList shape]
+
 ------------
 
 -------------------------

@@ -85,6 +85,7 @@ TensorFlow f = case f of
 
   -- Variable
   "Variable" => [Tensor_P, TensorElemType] ~~> Tensor_P
+  "random_uniform_initializer" => [Double, Double, Int, TensorElemType] ~~> ([Obj $ PyList Nat] ~> Tensor_P)
 
   -- Ops
   "initialize_all_variables" => [] ~~> Op_P
