@@ -21,8 +21,13 @@ Tensor_P = Obj Tensor_PS
 
 -------------------------------------------------- 
 -- Tensor Element
-TensorElemType : Type
-TensorElemType = String
+TensorElemType_PS : Signature
+TensorElemType_PS f = case f of
+  _ => Object f
+
+TensorElemType_P : Type
+TensorElemType_P = Obj TensorElemType_PS
+
 
 -------------------------------------------------- 
 -- Tensor Variable
@@ -80,18 +85,34 @@ Session_P = Obj Session_PS
 -- 
 TensorFlow : Signature
 TensorFlow f = case f of
+  -- Element types
+  "float16" => Attr TensorElemType_P
+  "float32" => Attr TensorElemType_P
+  "float64" => Attr TensorElemType_P
+  "int8" => Attr TensorElemType_P
+  "int16" => Attr TensorElemType_P
+  "int32" => Attr TensorElemType_P
+  "int64" => Attr TensorElemType_P
+  "uint8" => Attr TensorElemType_P
+  "bool" => Attr TensorElemType_P
+  "complex64" => Attr TensorElemType_P
+  "complex128" => Attr TensorElemType_P
+  "qint8" => Attr TensorElemType_P
+  "qint32" => Attr TensorElemType_P
+  "quint8" => Attr TensorElemType_P
+
   -- Session
   "Session" => [] ~~> Session_P
 
   -- Variable
-  "Variable" => [Tensor_P, TensorElemType] ~~> Tensor_P
-  "random_uniform_initializer" => [Double, Double, Int, TensorElemType] ~~> ([Obj $ PyList Nat] ~> Tensor_P)
+  "Variable" => [Tensor_P, TensorElemType_P] ~~> Tensor_P
+  "random_uniform_initializer" => [Double, Double, Int, TensorElemType_P] ~~> ([Obj $ PyList Nat] ~> Tensor_P)
 
   -- Ops
   "initialize_all_variables" => [] ~~> Op_P
 
   -- Tensor transformations
-  "cast" => [Tensor_P, TensorElemType] ~~> Tensor_P
+  "cast" => [Tensor_P, TensorElemType_P] ~~> Tensor_P
 
   -- Math
   "abs"  => [Tensor_P] ~~> Tensor_P
@@ -108,8 +129,8 @@ TensorFlow f = case f of
   "reduce_sum" => [Tensor_P, Obj $ PyList Nat, Bool] ~~> Tensor_P
 
   -- ...
-  "ones" => [Obj $ PyList Nat, TensorElemType] ~~> Tensor_P
-  "zeros" => [Obj $ PyList Nat, TensorElemType] ~~> Tensor_P
+  "ones" => [Obj $ PyList Nat, TensorElemType_P] ~~> Tensor_P
+  "zeros" => [Obj $ PyList Nat, TensorElemType_P] ~~> Tensor_P
 
   -- Control flow
   "argmax" => [Tensor_P, Obj $ PyList Nat] ~~> Tensor_P
@@ -132,7 +153,10 @@ TensorFlow f = case f of
   "less_equal" => [Tensor_P, Tensor_P] ~~> Bool
 
   -- Placeholders
-  "placeholder" => [TensorElemType, Obj $ PyList Nat] ~~> Tensor_P
+  "placeholder" => [TensorElemType_P, Obj $ PyList Nat] ~~> Tensor_P
+
+  -- Training
+  "gradients" => [List Tensor_P, List Tensor_P, Maybe $ List Tensor_P, String, Bool, Bool] ~~> List Tensor_P
 
   -- Module
   _ => Module f
@@ -152,3 +176,8 @@ TensorFlowNN f = case f of
 
 import_ : PIO $ Obj TensorFlow
 import_ = importModule "tensorflow"
+
+-- ziman wisdom:
+-- "float32" => Attr TensorElemType_P
+-- you'll lose the ability to call it as a function this way, though
+-- to do that, you'd probably have to extend TensorElemType_P with __call__

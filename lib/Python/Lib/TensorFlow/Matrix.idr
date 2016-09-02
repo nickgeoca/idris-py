@@ -24,8 +24,8 @@ import Python.Lib.Numpy.Matrix as Np
 infixl 8 +.
 infixl 8 -.
 infixl 9 *.
--- infixl 9 /. TODO: Fix this
--- infixl 9 *> TODO: Fix this
+-- infixl 9 /. -- TODO: Fix this
+-- infixl 9 *> -- TODO: Fix this
 
 -- This library does not support DT_STRING (variable length byte array).
 -- Python TensorFlow may not fully support Float16
@@ -60,8 +60,13 @@ record Tensor (shape : Shape) (dtype : ElemType) where
 data Tensor : (shape : Shape) -> (dtype : ElemType) -> Type where
   MkT : Tensor_P -> Tensor shape dtype
 
+{-
 Tensors : {n : Nat} -> (dtTs : Vect n (Shape, ElemType)) -> Type
 Tensors {n=n} _ = Vect n Tensor_P
+-}
+data Tensors : {n : Nat} -> (xs : Vect n (Shape, ElemType)) -> Type where
+  MkTs : List Tensor_P -> Tensors xs
+
 
 data Op : Type where
   MkOp : Op_P -> Op
@@ -100,23 +105,6 @@ implementation Show (Tensor xs dt) where
 -- [100,1,100,1] [100,1,100] => [100,100,100,100]
 broadcast_dim : List Nat -> List Nat -> List Nat
 broadcast_dim x y = y
-
-toTfType : ElemType -> TensorElemType
-toTfType dt = case dt of
-         Float16 => "float16"
-         Float32 => "float32"
-         Float64 => "float64"
-         Int8    => "int8"
-         Int16   => "int16"
-         Int32   => "int32"
-         Int64   => "int64"
-         UInt8   => "uint8"
-         TFBool  => "bool"
-         Complex64  => "complex64"
-         Complex128 => "complex128"
-         QInt8   => "qint8"
-         QInt32  => "qint32"
-         QUInt8  => "quint8"
 
 ----------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------
@@ -190,6 +178,26 @@ op2 : (f : String)
   -> {auto pf : TensorFlow f = [Tensor_P, Tensor_P] ~~> Tensor_P}
   -> Tensor ls dt -> Tensor ls dt -> Tensor ls dt
 op2 f (MkT x) (MkT y) = MkT . unsafePerformIO $ tf /. f $. [x, y]
+
+toTfType : ElemType -> TensorElemType_P
+toTfType dt = case dt of
+         Float16 => tf /. "float16"
+         Float32 => tf /. "float32"
+         Float64 => tf /. "float64"
+         Int8    => tf /. "int8"
+         Int16   => tf /. "int16"
+         Int32   => tf /. "int32"
+         Int64   => tf /. "int64"
+         UInt8   => tf /. "uint8"
+         TFBool  => tf /. "bool"
+         Complex64  => tf /. "complex64"
+         Complex128 => tf /. "complex128"
+         QInt8   => tf /. "qint8"
+         QInt32  => tf /. "qint32"
+         QUInt8  => tf /. "quint8"
+
+-- variable {dt=dt} (MkT initial_value) = MkT <$> (tf /. "Variable" $> [initial_value, toTfType dt])
+
 
 -------------------------
 -- Session
@@ -285,6 +293,7 @@ variable : (initial_value : Tensor xs dt)
 variable {dt=dt} (MkT initial_value) = MkT <$> (tf /. "Variable" $> [initial_value, toTfType dt])
 
 
+-- NOTE: minval/maxval can be python scalar (eg Double) or a TF Tensor
 -- TODO: Constrain type to floating point
 -- tf.random_uniform_initializer(minval=0.0, maxval=1.0, seed=None, dtype=tf.float32)
 export
@@ -556,6 +565,27 @@ placeholder {xs=xs} {dt=dt} getPh setPh =
   where
   pyGetTFPlaceholder : Eff (Tensor xs dt) [PYIO]
   pyGetTFPlaceholder = MkT <$> (tf /. "placeholder" $> [toTfType dt, pyList xs])
+
+-------------------------
+-- Training
+-- gradients
+--  tf.gradients(ys, xs, grad_ys=None, name='gradients', colocate_gradients_with_ops=False, gate_gradients=False, aggregation_method=None)
+--   ys: A Tensor or list of tensors to be differentiated.
+--   xs: A Tensor or list of tensors to be used for differentiation.
+--   grad_ys: Optional. A Tensor or list of tensors the same size as ys and holding the gradients computed for each y in ys.
+--   name: Optional name to use for grouping all the gradient ops together. defaults to 'gradients'.
+--   colocate_gradients_with_ops: If True, try colocating gradients with the corresponding op.
+--   gate_gradients: If True, add a tuple around the gradients returned for an operations. This avoids some race conditions.
+--   aggregation_method: Specifies the method used to combine gradient terms. Accepted values are constants defined in the class AggregationMethod.
+--  A list of sum(dy/dx) for each x in xs.
+export
+gradients : {varTypes    : Vect vLen (Shape, ElemType)}
+         -> {outputTypes : Vect oLen (Shape, ElemType)}
+         -> (vars    : Tensors varTypes)
+         -> (outputs : Tensors outputTypes)
+         -> Tensors varTypes
+gradients (MkTs vars) (MkTs outputs) 
+  = MkTs . unsafePerformIO $ tf /. "gradients" $. [vars, outputs, Nothing, "gradients", True, False]
 
 
 ----------------------------------------------------------------------------------------------------
