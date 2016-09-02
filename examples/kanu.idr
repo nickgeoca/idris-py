@@ -30,7 +30,7 @@ printOp op = do sess <- session
 --------------------------------------------------
 -- Model
 model : Tensor [batchDim, 784] dt
-     -> NN [batchDim, 10] dt
+     -> NN     [batchDim, 10]  dt
 model x = 
   do start x
      dense 10
