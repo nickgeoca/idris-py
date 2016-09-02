@@ -6,7 +6,7 @@ import Python.Lib.Numpy.Random as Random
 import Python.Lib.Numpy.Matrix
 import Python.Lib.TensorFlow.Matrix
 import Python.Lib.TensorFlow.NN
--- import Python.Lib.TensorFlow
+import Python.Lib.TensorFlow
 
 import Python.PyIO
 import Effects
@@ -138,23 +138,50 @@ cross_entropy y t = reduceMeanAll $ -1 *. reduce_sum (t * log y) [1] False
 -- 'clipnorm', 'clipvalue'
 -- lr=0.01, momentum=0., decay=0., nesterov=False,
 
+assign : Tensor xs dt -> Tensor xs dt -> Eff () [PYIO]
+assign = believe_me
 
+-- {-
 --  tf.gradients(loss, variables, colocate_gradients_with_ops=True)
 export -- optimizer
-sgd : {wt : List (Shape, ElemType)
+sgd : (weights : Tensors wTys)
    -> (loss    : Tensor [] dt)
-   -> (weights : Tensors wt)
-   -> Eff () [PYIO]
-sgd {wt=wt} loss weights = do g
+   -> Eff () [PYIO] [PYIO]
+sgd (MkTs weightsPy) loss = map getNewWeight
+  do (do (wPy, (ws, wdt)) <- zip weightsPy wTys
+         let w = MkT wPy
+             wGrad = gradients loss w
+             -- position = (-1 * lr) *. wGrad -- BUG: this operation must involve float math, but permitting any ElemType
+             position = (-1 / 100) *. wGrad -- BUG: this operation must involve float math, but permitting any ElemType
+             wNew = w + position
+         assign w wNew)
+     return ()
   where
-  lr : Tensor [] Float32
-  weightGrads : Tensors wt
-  position : Blah
 
-  lr = 0.01
-  weightGrads = gradients loss weights
-  position = (-1 * .01) *. paramGradients
 
+{-
+  getNewWeight {s=s} {dt=dt} t = w + position
+    where
+    w : Tensor s dt
+    w = MkT wPy
+    wGrad = gradients loss w
+    position = (-1 / 100) *. wGrad -- BUG: this operation must involve float math, but permitting any ElemType
+    -- position = (-1 * lr) *. wGrad -- BUG: this operation must involve float math, but permitting any ElemType
+-}
+ 
+  -- lr : Tensor [] Float32
+  -- lr = 0.01
+
+-- -}
+
+double : Tensors ds -> Tensors ds
+double {ds=ds} (MkTs ts) = MkTs $
+  do ((s,dt),tp) <- zip ds ts
+     let t = the (Tensor s dt) (MkT tp)
+     case t + t of
+       (MkT t') => return t'
+
+map : Tensors tys -> (Tensor s dt -> ) -> 
 
 -- run
 -- train
@@ -177,4 +204,7 @@ model
 loss
 opt
  -}
+ 
+ 
+ 
  
