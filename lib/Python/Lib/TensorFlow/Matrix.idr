@@ -60,11 +60,8 @@ record Tensor (shape : Shape) (dtype : ElemType) where
 data Tensor : (shape : Shape) -> (dtype : ElemType) -> Type where
   MkT : Tensor_P -> Tensor shape dtype
 
-{-
-Tensors : {n : Nat} -> (dtTs : Vect n (Shape, ElemType)) -> Type
-Tensors {n=n} _ = Vect n Tensor_P
--}
-data Tensors : {n : Nat} -> (xs : Vect n (Shape, ElemType)) -> Type where
+
+data Tensors : (xs : List (Shape, ElemType)) -> Type where
   MkTs : List Tensor_P -> Tensors xs
 
 
@@ -579,8 +576,8 @@ placeholder {xs=xs} {dt=dt} getPh setPh =
 --   aggregation_method: Specifies the method used to combine gradient terms. Accepted values are constants defined in the class AggregationMethod.
 --  A list of sum(dy/dx) for each x in xs.
 export
-gradients : {varTypes    : Vect vLen (Shape, ElemType)}
-         -> {outputTypes : Vect oLen (Shape, ElemType)}
+gradients : {varTypes    : List (Shape, ElemType)}
+         -> {outputTypes : List (Shape, ElemType)}
          -> (vars    : Tensors varTypes)
          -> (outputs : Tensors outputTypes)
          -> Tensors varTypes
