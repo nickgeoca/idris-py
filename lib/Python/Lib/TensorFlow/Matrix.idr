@@ -64,7 +64,6 @@ data Tensor : (shape : Shape) -> (dtype : ElemType) -> Type where
 data Tensors : (xs : List (Shape, ElemType)) -> Type where
   MkTs : List Tensor_P -> Tensors xs
 
-
 data Op : Type where
   MkOp : Op_P -> Op
 
@@ -575,14 +574,17 @@ placeholder {xs=xs} {dt=dt} getPh setPh =
 --   gate_gradients: If True, add a tuple around the gradients returned for an operations. This avoids some race conditions.
 --   aggregation_method: Specifies the method used to combine gradient terms. Accepted values are constants defined in the class AggregationMethod.
 --  A list of sum(dy/dx) for each x in xs.
+||| returns list of sum(dy/dx) for each x in xs.
+||| @ ys tensors to be differentiated
+||| @ xs tensors used to differentiate
 export
-gradients : {varTypes    : List (Shape, ElemType)}
-         -> {outputTypes : List (Shape, ElemType)}
-         -> (vars    : Tensors varTypes)
-         -> (outputs : Tensors outputTypes)
+gradients : {ysT : List (Shape, ElemType)}
+         -> {xsT : List (Shape, ElemType)}
+         -> (ys : Tensors ysT)
+         -> (xs : Tensors xsT)
          -> Tensors varTypes
-gradients (MkTs vars) (MkTs outputs) 
-  = MkTs . unsafePerformIO $ tf /. "gradients" $. [vars, outputs, Nothing, "gradients", True, False]
+gradients (MkTs ys) (MkTs xs) 
+  = MkTs . unsafePerformIO $ tf /. "gradients" $. [ys, xs, Nothing, "gradients", True, False]
 
 
 ----------------------------------------------------------------------------------------------------
