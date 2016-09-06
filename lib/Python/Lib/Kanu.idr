@@ -44,7 +44,7 @@ getFans ls = (0,0) -- NOTE: Invalid case
 random_uniform : Double -> Double -> Eff (Tensor shape dt) [PYIO]
 random_uniform low high =
   do seed <- Random.randint 100000000 -- 10e8
-     return $ random_uniform_initializer low high seed -- (shape)
+     pure $ random_uniform_initializer low high seed -- (shape)
 
 
 -- uniform(shape, scale=0.05, name=None)
@@ -57,62 +57,163 @@ uniform scale = random_uniform (-1 * scale) scale
 -- TODO: Consider two rand strategies: running TensorFlow session with seed, vs no seed
 export
 glorot_uniform : Eff (Tensor shape dt) [PYIO]
-glorot_uniform {shape=shape} = uniform scale
+glorot_uniform {shape} = uniform scale
   where
   scale : Double
   scale = case getFans shape of
                (fanIn, fanOut) => sqrt $ 6 / (fanIn + fanOut)
 ----------------------------------------------------------------------------------------------------
 -- Misc functions
-putMRet : a -> Eff a [STATE _] [STATE a]
-putMRet z = do putM z
-               return z
+export 
+record NNData (oS : Shape) (oDt : ElemType) (wTys : List (Shape, ElemType))  where
+  constructor    MkNND
+  nnOutput  : Tensor oS oDt
+  nnWeights : Tensors wTys
 
-NN : (os  : Shape)
-  -> (odt : ElemType)
-  -> Type
-NN shape dt = Eff (Tensor shape dt) [STATE (), PYIO] [STATE $ Tensor shape dt, PYIO]
+-- TODO: Consider removing PYIO type from effect where there are no side effects
+-- TODO: Consider- NN Open Close (s,dt) wtys
+-- TODO: Consider- NN Close Open (s,dt) wtys
+-- TODO: Consider- NN Open Open (s,dt) wtys
+-- TODO: Or- NN () (s,dt) wtys1 wtys2
+-- TODO: Or- NN (iS,iDt) (oS,oDt) wtys1 wtys2
 
-NNLayer : (i : (Shape, ElemType)) 
-       -> (o : (Shape, ElemType))  
+
+public export 
+NNStart : (outTy : (Shape, ElemType))
+       -> (wTys  : List (Shape, ElemType))
        -> Type
-NNLayer (iShape, iDt) (oShape, oDt) 
-  = Eff (Tensor oShape oDt) [STATE $ Tensor iShape iDt, PYIO] [STATE $ Tensor oShape oDt, PYIO]
---       -> Eff layer [STATE layer, PYIO]
+NNStart (oS,oDt) wTys = Eff (Tensor oS oDt) [STATE $ Tensors wTys, PYIO] 
+                                            [STATE $ NNData oS oDt wTys, PYIO]
+
+||| End of sequential
+public export
+NNStop : (outTy : (Shape, ElemType))
+      -> (wTys  : List (Shape, ElemType))
+      -> Type
+NNStop (oS,oDt) wTys = Eff (Tensor oS oDt) [STATE $ NNData oS oDt wTys, PYIO] 
+                                           [STATE $ Tensors wTys, PYIO]
+
+
+public export
+NNLayer : (wiTys : List (Shape, ElemType))
+       -> (iTy : (Shape, ElemType)) 
+       -> (woTys : List (Shape, ElemType))
+       -> (oTy : (Shape, ElemType))  
+       -> Type
+NNLayer wiTys (iS, iDt) woTys (oS, oDt) 
+  = Eff (Tensor oS oDt) [STATE $ NNData iS iDt wiTys, PYIO] 
+                        [STATE $ NNData oS oDt woTys, PYIO]
+
+public export
+NN : (ty : (Shape, ElemType)) 
+  -> (wTys : List (Shape, ElemType))
+  -> Type
+NN (s, dt) wTys
+  = Eff (NNData s dt wTys) [STATE $ NNData s dt wTys, PYIO] 
+                           [STATE $ NNData s dt wTys, PYIO] 
+
+
+
+{- Did not parameterize w/ layer's weights b/c following error when running in functions
+ |                   Type mismatch between
+ |                           wTys
+ |                   and
+ |                           wTys ++ []
+-}
+
+
+--------------------------------------------------
+-- Util functions
+
+-- NOTE: See addWeights note
+private
+getNNOutput : NNLayer wTys (s,dt) wTys (s, dt)
+getNNOutput = nnOutput <$> get
+
+
+namespace StartState
+  -- NOTE: See addWeights note
+  private
+  setNNOutput : Tensor s dt
+             -> NNStart (s, dt) wTys
+  setNNOutput x = do updateM (\ws => MkNND x ws)
+                     pure x
+
+namespace LayerState
+  -- NOTE: See addWeights note
+  private
+  setNNOutput : Tensor s dt
+             -> NNLayer wTys (_,_) wTys (s, dt)
+  setNNOutput x = do updateM (\(MkNND _ ws) => MkNND x ws)
+                     pure x
+
+
+-- NOTE: adding weights has type NNLayer. Maybe UtilFn type alias would make more sense
+private
+addWeights : Tensors newWTys
+          -> NNLayer wTys (s,dt) (wTys ++ newWTys) (s,dt)
+addWeights (MkTs newWsPy) = 
+  do updateM (\(MkNND x (MkTs wsPy)) => MkNND x (MkTs $ wsPy ++ newWsPy))
+     nnOutput <$> get
+
+
+--------------------------------------------------
+-- Layer helpers
+-- Could call this start or input
 -- ex: Input(batch_shape=(batchSize, timesteps, cnnWidth, featureDim))
+export
+start : Tensor s dt
+     -> NNStart (s, dt) wTys 
+start x = do updateM (\ws => MkNND x ws)
+             pure x
 
 export
-(*) : Tensor xs dt
-   -> Tensor xs dt
-   -> Eff (Tensor xs dt) [STATE a, PYIO] [STATE $ Tensor xs dt, PYIO]
-(*) x y = putMRet $ mul x y
+stop : NNStop (s,dt) wTys
+stop = do x <- nnOutput <$> get
+          putM $ nnWeights !get
+          pure x
+
+export
+end : NN (s,dt) wTys
+end = get
+
+--------------------------------------------------
+-- Math functions
+
+export
+(*) : Tensor s dt
+   -> Tensor s dt
+   -> NNStart (s,dt) wTys
+(*) {s} {dt} x y = setNNOutput z
+  where
+  z = x * y
+
+{- TODO: Important to do this fn to help get types down
+export 
+concat : Tensor s1 dt
+      -> Tensor s2 dt
+      -> NNLayer wTys (_,_) wTys (s1,dt)
+concat x y = 
+-- 'sum', 'mul', 'concat', 'ave', 'cos', 'dot', 'max'.
+-}
+
 
 --------------------------------------------------
 -- Layers
--- ex: Input(batch_shape=(batchSize, timesteps, cnnWidth, featureDim))
-input : Tensor shape dt
-     -> NNLayer (_, _) (shape, dt)
-input t = putMRet t
-
-start : Tensor shape dt
-     -> Eff (Tensor shape dt) [STATE a, PYIO] [STATE $ Tensor shape dt, PYIO]
-start t = putMRet t
-
-end : Eff (Tensor shape dt) [STATE $ Tensor shape dt, PYIO] [STATE (), PYIO] 
-end = do t <- get
-         putM ()
-         return t
 
 -- keras.layers.core.Dense(output_dim, init='glorot_uniform', activation='linear', weights=None, W_regularizer=None, b_regularizer=None, activity_regularizer=None, W_constraint=None, b_constraint=None, bias=True, input_dim=None)
 export
 dense : (outputDim : Nat) 
-     -> NNLayer ([batchDim, inputDim] , dt)  
+     -> NNLayer wiTys
+                ([batchDim, inputDim] , dt)
+                (wiTys ++ [([outputDim], dt), ([inputDim, outputDim], dt)])
                 ([batchDim, outputDim], dt)
-dense {dt=dt} {batchDim=batchDim} {inputDim=inputDim} outputDim =  
-  do x <- get
+dense {dt} {batchDim} {inputDim} outputDim =  
+  do x <- getNNOutput
      b <- variable !glorot_uniform
      w <- variable !glorot_uniform
-     putMRet $ layer x b w
+     addWeights $ b #> w #> MkTs []
+     setNNOutput (layer x b w)
   where
   layer : (x : Tensor [batchDim, inputDim] dt)
        -> (b : Tensor [outputDim] dt)  
@@ -138,50 +239,50 @@ cross_entropy y t = reduceMeanAll $ -1 *. reduce_sum (t * log y) [1] False
 -- 'clipnorm', 'clipvalue'
 -- lr=0.01, momentum=0., decay=0., nesterov=False,
 
-assign : Tensor xs dt -> Tensor xs dt -> Eff () [PYIO]
-assign = believe_me
-
 -- {-
 --  tf.gradients(loss, variables, colocate_gradients_with_ops=True)
 export -- optimizer
-sgd : (weights : Tensors wTys)
-   -> (loss    : Tensor [] dt)
-   -> Eff () [PYIO] [PYIO]
-sgd (MkTs weightsPy) loss = map getNewWeight
-  do (do (wPy, (ws, wdt)) <- zip weightsPy wTys
-         let w = MkT wPy
-             wGrad = gradients loss w
-             -- position = (-1 * lr) *. wGrad -- BUG: this operation must involve float math, but permitting any ElemType
-             position = (-1 / 100) *. wGrad -- BUG: this operation must involve float math, but permitting any ElemType
-             wNew = w + position
-         assign w wNew)
-     return ()
+sgd' : (weights     : Tensors wTys)  -- TODO: Is it better to constrain weights or something to variables only????
+    -> (weightGrads : Tensors wTys)
+    -> Eff () [PYIO]
+sgd' {wTys=(s,dt)::wTys} (MkTs (wPy::wsPy)) (MkTs (gPy::gsPy)) = 
+  do assign w newWeight
+     sgd' ws gs
   where
+  ws : Tensors wTys
+  w : (Tensor s dt)
+  gs : Tensors wTys
+  g : (Tensor s dt)
+
+  ws = MkTs wsPy
+  w = MkT wPy
+  gs = MkTs gsPy
+  g = MkT gPy
+
+  newWeight : Tensor s dt
+  newWeight = w + (-1 *. (1 / 100) *. g) -- BUG: ? this operation must involve float math, but permitting any ElemType
+sgd' _ _ = pure () -- NOTE: This gives missing cases error if: sgd [] _ = pure ()
+
+export
+sgd : (weights : Tensors wTys)
+   -> (loss    : Tensor [] dt) -- Be careful if change this line of code
+   -> Eff () [PYIO]
+sgd weights (MkT lossPy) = sgd' weights weightGrads
+  where
+  loss : Tensors [([],dt)]
+  loss = MkTs [lossPy]
+  weightGrads = gradients weights loss  -- QUESTION: Diff between passing list of tensors vs single tensor? Seems to be time vs mem tradeoff
 
 
-{-
-  getNewWeight {s=s} {dt=dt} t = w + position
-    where
-    w : Tensor s dt
-    w = MkT wPy
-    wGrad = gradients loss w
-    position = (-1 / 100) *. wGrad -- BUG: this operation must involve float math, but permitting any ElemType
-    -- position = (-1 * lr) *. wGrad -- BUG: this operation must involve float math, but permitting any ElemType
--}
- 
-  -- lr : Tensor [] Float32
-  -- lr = 0.01
-
--- -}
 
 double : Tensors ds -> Tensors ds
-double {ds=ds} (MkTs ts) = MkTs $
+double {ds} (MkTs ts) = MkTs $
   do ((s,dt),tp) <- zip ds ts
      let t = the (Tensor s dt) (MkT tp)
      case t + t of
-       (MkT t') => return t'
+       (MkT t') => pure t'
 
-map : Tensors tys -> (Tensor s dt -> ) -> 
+
 
 -- run
 -- train
@@ -207,4 +308,4 @@ opt
  
  
  
- 
+
