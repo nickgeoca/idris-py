@@ -26,6 +26,8 @@ infixl 8 -.
 infixl 9 *.
 -- infixl 9 /. -- TODO: Fix this
 -- infixl 9 *> -- TODO: Fix this
+infixr 5 #
+infixr 5 #>
 
 -- This library does not support DT_STRING (variable length byte array).
 -- Python TensorFlow may not fully support Float16
@@ -63,6 +65,13 @@ data Tensor : (shape : Shape) -> (dtype : ElemType) -> Type where
 
 data Tensors : (xs : List (Shape, ElemType)) -> Type where
   MkTs : List Tensor_P -> Tensors xs
+
+export
+(#>) : Tensor s dt 
+    -> Tensors tys
+    -> Tensors ((s,dt)::tys)
+(#>) (MkT x) (MkTs xs) = MkTs $ x :: xs
+
 
 data Op : Type where
   MkOp : Op_P -> Op
@@ -125,6 +134,29 @@ implementation Cast ElemType NpElemType where
     QInt32 => Np.Float32
     QUInt8 => Np.Float32
 
+implementation Cast NpElemType ElemType where
+  cast t = case t of
+    Np.Float16 => Float16
+    Np.Float32 => Float32
+    Np.Float64 => Float64
+    Np.Float => Float64
+    Np.Int8 => Int8
+    Np.Int16 => Int16
+    Np.Int32 => Int32
+    Np.Int64 => Int64
+    Np.Uint8 => UInt8
+    Np.Bool => TFBool
+    Np.Complex64 => Complex64
+    Np.Complex128 => Complex128
+    Np.Complex => Complex128
+    _ => Int8 -- BUG/NOTE: This is not a total function!
+    -- NOTE: For the types below, there are probably corner cases where this won't work
+    -- Np.Float32 => QInt8
+    -- QInt32 => Np.Float32
+    -- QUInt8 => Np.Float32
+
+
+
 implementation Cast (Shape, ElemType) (Shape, NpElemType) where
   cast (s,e) = (s, cast e)
 
@@ -141,7 +173,6 @@ record Placeholder (shape : Shape) (dt : ElemType) where
   tPlaceholder : Maybe $ Tensor shape dt
   mPlaceholder : MatrixN shape (cast dt)
 
-infixr 5 #
 ||| Help convert the Placeholder record to a list. 
 ||| Ex: toListTuples (MkPhs x1 x2) = x1 # x2 # []
 export
@@ -266,7 +297,6 @@ namespace op
     feed_dict : Dictionary_P (Tensor_P, Arr) 
     feed_dict = dict $ pyDictionary $ toPyPlaceholders ()
 
-
 export 
 close : Session
      -> Eff () [PYIO] 
@@ -287,6 +317,19 @@ export
 variable : (initial_value : Tensor xs dt) 
         -> Eff (Tensor xs dt) [PYIO]
 variable {dt=dt} (MkT initial_value) = MkT <$> (tf /. "Variable" $> [initial_value, toTfType dt])
+
+
+-- tf.Variable.assign(value, use_locking=False)
+||| This sets a variable to a new value. 
+||| NOTE: This is type unsafe b/c not every Tensor is a variable.
+||| @ var Variable that gets assigned new value (val)
+export 
+assign : (var : Tensor xs dt) 
+      -> (val : Tensor xs dt)
+      -> Eff () [PYIO]
+assign (MkT varPy) (MkT valPy) = 
+  do (the (Variable_P) $ believe_me varPy) /. "assign" $> [valPy]
+     return ()
 
 
 -- NOTE: minval/maxval can be python scalar (eg Double) or a TF Tensor
@@ -464,6 +507,9 @@ export  -- tf.zeros(shape, dtype=tf.float32, name=None)
 zeros : Tensor xs dt
 zeros {xs=xs} = MkT . unsafePerformIO $ tf /. "zeros" $. [pyList xs, toTfType dt]
 
+export -- tf.constant(value, dtype=None, shape=None, name='Const')
+constant : MatrixN s dt -> Tensor s (cast dt)
+constant {dt=dt} (MkM' m) = MkT . unsafePerformIO $ tf /. "constant" $. [m, toTfType $ cast dt]
 
 -------------------------
 -- Comparison operators
@@ -582,7 +628,7 @@ gradients : {ysT : List (Shape, ElemType)}
          -> {xsT : List (Shape, ElemType)}
          -> (ys : Tensors ysT)
          -> (xs : Tensors xsT)
-         -> Tensors varTypes
+         -> Tensors ysT
 gradients (MkTs ys) (MkTs xs) 
   = MkTs . unsafePerformIO $ tf /. "gradients" $. [ys, xs, Nothing, "gradients", True, False]
 

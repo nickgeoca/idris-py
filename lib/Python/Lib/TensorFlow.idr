@@ -131,6 +131,7 @@ TensorFlow f = case f of
   -- ...
   "ones" => [Obj $ PyList Nat, TensorElemType_P] ~~> Tensor_P
   "zeros" => [Obj $ PyList Nat, TensorElemType_P] ~~> Tensor_P
+  "constant" => [Arr, TensorElemType_P] ~~> Tensor_P
 
   -- Control flow
   "argmax" => [Tensor_P, Obj $ PyList Nat] ~~> Tensor_P
