@@ -15,7 +15,7 @@ import Python.Lib.Kanu
 
 --------------------------------------------------
 -- Miscelaneous functions
-printOpParam : ToPyPlaceholders phs => Session -> Tensor xs dt -> Eff () [STATE phs, PYIO] 
+printOpParam : ToPyPlaceholders phs => Session -> Tensor xs dt -> Eff () ['Phs ::: (STATE phs), PYIO] 
 printOpParam sess t = printLn' !(runM sess t)
   
 
@@ -25,24 +25,15 @@ printOp sess op = printLn' !(run sess op ())
 
 --------------------------------------------------
 -- Model
-{-
-TODO
-get list of vars from this
-get model fn from this
-run contain omdel state in this function
--}
 
--- {-
+weights : ElemType -> List (Shape, ElemType)
+weights dt = [([10], dt),([784, 10], dt),([10], dt),([784, 10], dt)]
+
+
 model : Tensor [batchDim, 784] dt
-     -> Eff         (NNData [batchDim, 10] dt [([10], dt),
-                                               ([784, 10], dt),
-                                               ([10], dt),
-                                               ([784, 10], dt)]) 
-            [STATE $ Tensors [], PYIO] 
-            [STATE $ NNData [batchDim, 10] dt [([10], dt),
-                                              ([784, 10], dt),
-                                              ([10], dt),
-                                              ([784, 10], dt)], PYIO]
+     -> Eff (NNData [batchDim, 10] dt (weights dt)) 
+            ['NN ::: STATE (Tensors []), PYIO] 
+            ['NN ::: STATE (NNData [batchDim, 10] dt (weights dt)), PYIO]
 model x = 
   do start x
      dense 10
@@ -54,24 +45,13 @@ model x =
 
      y1 * y2
      end
--- -}
 
-{-
+
 modelx : Tensor s dt
-  -> Eff () [STATE $ Tensors ws, PYIO] [STATE $ NNData s dt ws, PYIO]
+  -> TransEff.Eff () ['NN ::: STATE (Tensors ws)    , PYIO] 
+            ['NN ::: STATE (NNData s dt ws), PYIO]
 modelx x = do start x
               pure ()
-              
--- -}
-
--- Documentation
--- Idris comm tutorial
-{-
-C-c C-s  -- Do on decleration to get patterns
-C-c C-c  -- Case split on pattern variable
-C-c C-a  -- Try to solve hole
-C-c C-z  -- Go to repl
--}
   
 --------------------------------------------------
 -- Placeholders
@@ -83,20 +63,21 @@ implementation ToPyPlaceholders Parameters where
   toPyPlaceholders (MkParams x1) = x1 # []
 
 --------------------------------------------------
--- basics test
+-- Main
 
--- {-
+
 main : PIO ()
-main = runInit [phs, (MkTs []), ()] (
-  do sess <- initSess
-     x <- placeholder X set_X 
-     -- NOTE: Probably runnig slow so need to tag to improve speed
-     (MkNND y ws) <- model x
-     updateM (\(MkNND _ _) => ())
-     printOpParam y
-     sgd ws ones -- (cross_entropy y (constant(full 0.5)))
-     printOpParam y
-  )
+main =  
+  do runInit ['NN := (the (Tensors []) (MkTs [])), 'Phs := phs, ()]( -- ['Phs := phs, 'NN := (MkTs []), ()] (
+       do sess <- initSess
+          x <- placeholder X set_X 
+          (MkNND y ws) <- model x
+          -- printOpParam y
+          -- sgd ws (believe_me ones) -- (cross_entropy y (constant(full 0.5)))  
+          -- printOpParam y
+          pure ()
+       )
+     pure ()
   where
   phs : Parameters
   phs = MkParams (MkPh Nothing (full 3.14))
@@ -104,46 +85,4 @@ main = runInit [phs, (MkTs []), ()] (
   initSess = do sess <- session
                 op.run sess initialize_all_variables
                 return sess
--- -}
 
-{-
-NN shape dt = Eff (Tensor shape dt) [STATE (), PYIO] [STATE $ Tensor shape dt, PYIO]
-
-runModel
- run model placeholders
-
-train : Optimizer opt 
-     => Eff () [PYIO]
- runModel
- opt weights loss
-
-data Model : Type where
-  model : NN s dt
-  opt   : (weights : Tensors wTys) 
-       -> (loss    : Tensor [] dtl)
-       -> Eff () [PYIO]
-  
-interface Model s dt where
-  run : matricies -> Tensor s dt
-  train : matricies -> Eff () [PYIO]
-
-   
-sgd : (weights : Tensors wTys)
-   -> (loss    : Tensor [] dt) -- Be careful if change this line of code
--}
-
-{-
--- Model
-model : Tensor [batchDim, 784] dt
-    -> PIO $ Tensor [batchDim, 10] dt
-model x = runInit [(), ()] $ 
-  do start x
-     dense 10
-     y1 <- end
-
-     start x
-     dense 10
-     y2 <- end
-
-     y1 * y2
--}

@@ -278,9 +278,9 @@ namespace t
   runM : (ToPyPlaceholders phs) 
      => Session
      -> (fetch : Tensor xs dt)
-     -> Eff (MatrixN xs $ cast dt) [STATE phs, PYIO]
+     -> Eff (MatrixN xs $ cast dt) ['Phs ::: STATE phs, PYIO]
   runM (MkS sess) (MkT fetch) = 
-    do placeholders <- get
+    do placeholders <- 'Phs :- get
        m <- sess /. "run" $> [believe_me fetch, feed_dict placeholders]  -- BUG: fetch should not be a placeholder
        return $ MkM' (believe_me m)
     where
@@ -589,20 +589,22 @@ while_loop cond body vars parallelIterations backProp swapMemory
 private
 getUpdatedPlaceholder : Tensor xs dt 
                      -> (getPh : (phs -> Placeholder xs dt))
-                     -> Eff (Placeholder xs dt) [STATE phs] [STATE phs]
+                     -> Eff (Placeholder xs dt) ['Phs ::: STATE phs] 
+                                                ['Phs ::: STATE phs]
 getUpdatedPlaceholder t getPh = 
-  do phs <- get
+  do phs <- 'Phs :- get
      pure $ case (getPh phs) of
                MkPh _ m => MkPh (Just t) m
 
 export -- tf.placeholder(dtype, shape=None, name=None)
 placeholder : (getPh : (phs -> Placeholder xs dt))
            -> (setPh : (Placeholder xs dt -> phs -> phs))
-           -> Eff (Tensor xs dt) [STATE phs, PYIO] [STATE phs, PYIO]
+           -> Eff (Tensor xs dt) ['Phs ::: STATE phs, PYIO] 
+                                 ['Phs ::: STATE phs, PYIO]
 placeholder {xs=xs} {dt=dt} getPh setPh =
   do tfPlaceholder <- pyGetTFPlaceholder
      ph <- getUpdatedPlaceholder tfPlaceholder getPh
-     updateM $ setPh ph
+     'Phs :- updateM (setPh ph)
      pure tfPlaceholder
   where
   pyGetTFPlaceholder : Eff (Tensor xs dt) [PYIO]

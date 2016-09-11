@@ -78,20 +78,29 @@ record NNData (oS : Shape) (oDt : ElemType) (wTys : List (Shape, ElemType))  whe
 -- TODO: Or- NN (iS,iDt) (oS,oDt) wtys1 wtys2
 
 
+
+fn : Eff () ['Tag ::: STATE Int] ['Tag ::: STATE Char]
+fn = 'Tag :- putM 'a'
+
+
+
 public export 
 NNStart : (outTy : (Shape, ElemType))
        -> (wTys  : List (Shape, ElemType))
        -> Type
-NNStart (oS,oDt) wTys = Eff (Tensor oS oDt) [STATE $ Tensors wTys, PYIO] 
-                                            [STATE $ NNData oS oDt wTys, PYIO]
+NNStart (oS,oDt) wTys = Eff (Tensor oS oDt) 
+                            ['NN ::: STATE (Tensors wTys), PYIO] 
+                            ['NN ::: STATE (NNData oS oDt wTys), PYIO]
+
 
 ||| End of sequential
 public export
 NNStop : (outTy : (Shape, ElemType))
       -> (wTys  : List (Shape, ElemType))
       -> Type
-NNStop (oS,oDt) wTys = Eff (Tensor oS oDt) [STATE $ NNData oS oDt wTys, PYIO] 
-                                           [STATE $ Tensors wTys, PYIO]
+NNStop (oS,oDt) wTys = Eff (Tensor oS oDt) 
+                           ['NN ::: STATE (NNData oS oDt wTys), PYIO] 
+                           ['NN ::: STATE (Tensors wTys), PYIO]
 
 
 public export
@@ -101,16 +110,16 @@ NNLayer : (wiTys : List (Shape, ElemType))
        -> (oTy : (Shape, ElemType))  
        -> Type
 NNLayer wiTys (iS, iDt) woTys (oS, oDt) 
-  = Eff (Tensor oS oDt) [STATE $ NNData iS iDt wiTys, PYIO] 
-                        [STATE $ NNData oS oDt woTys, PYIO]
+  = Eff (Tensor oS oDt) ['NN ::: STATE (NNData iS iDt wiTys), PYIO] 
+                        ['NN ::: STATE (NNData oS oDt woTys), PYIO]
 
 public export
 NN : (ty : (Shape, ElemType)) 
   -> (wTys : List (Shape, ElemType))
   -> Type
 NN (s, dt) wTys
-  = Eff (NNData s dt wTys) [STATE $ NNData s dt wTys, PYIO] 
-                           [STATE $ NNData s dt wTys, PYIO] 
+  = Eff (NNData s dt wTys) ['NN ::: STATE (NNData s dt wTys), PYIO] 
+                           ['NN ::: STATE (NNData s dt wTys), PYIO] 
 
 
 
@@ -128,7 +137,7 @@ NN (s, dt) wTys
 -- NOTE: See addWeights note
 private
 getNNOutput : NNLayer wTys (s,dt) wTys (s, dt)
-getNNOutput = nnOutput <$> get
+getNNOutput = nnOutput <$> ('NN :- get)
 
 
 namespace StartState
@@ -136,7 +145,7 @@ namespace StartState
   private
   setNNOutput : Tensor s dt
              -> NNStart (s, dt) wTys
-  setNNOutput x = do updateM (\ws => MkNND x ws)
+  setNNOutput x = do 'NN :- updateM (\ws => MkNND x ws)
                      pure x
 
 namespace LayerState
@@ -144,7 +153,7 @@ namespace LayerState
   private
   setNNOutput : Tensor s dt
              -> NNLayer wTys (_,_) wTys (s, dt)
-  setNNOutput x = do updateM (\(MkNND _ ws) => MkNND x ws)
+  setNNOutput x = do 'NN :- updateM (\(MkNND _ ws) => MkNND x ws)
                      pure x
 
 
@@ -153,8 +162,8 @@ private
 addWeights : Tensors newWTys
           -> NNLayer wTys (s,dt) (wTys ++ newWTys) (s,dt)
 addWeights (MkTs newWsPy) = 
-  do updateM (\(MkNND x (MkTs wsPy)) => MkNND x (MkTs $ wsPy ++ newWsPy))
-     nnOutput <$> get
+  do 'NN :- updateM (\(MkNND x (MkTs wsPy)) => MkNND x (MkTs $ wsPy ++ newWsPy))
+     nnOutput <$> 'NN :- get
 
 
 --------------------------------------------------
@@ -164,18 +173,18 @@ addWeights (MkTs newWsPy) =
 export
 start : Tensor s dt
      -> NNStart (s, dt) wTys 
-start x = do updateM (\ws => MkNND x ws)
+start x = do 'NN :- updateM (\ws => MkNND x ws)
              pure x
 
 export
 stop : NNStop (s,dt) wTys
-stop = do x <- nnOutput <$> get
-          putM $ nnWeights !get
-          pure x
+stop = do (MkNND t ws) <- 'NN :- get
+          'NN :- putM ws
+          pure t
 
 export
 end : NN (s,dt) wTys
-end = get
+end = 'NN :- get
 
 --------------------------------------------------
 -- Math functions
