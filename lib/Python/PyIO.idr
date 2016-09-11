@@ -47,23 +47,22 @@ PYIO = MkEff () PyIO
 
 namespace PYIO
   infixl 4 $>  -- TODO: Is it better to give this the ($.) name? Or stick w/ alternate ($>)?
-  ||| This is the PIO equivilent to $.
+  ||| Duck-typed function call. Equivilent to PIO ($.)
   ($>) : (f : Obj pySig)
       -> {auto pf : pySig "__call__" = Call t}
       -> (args : a)
       -> Eff (retTy t args) [PYIO]
   ($>) f a = call $ DuckTypeFnCall f a
-{-
-locally : x -> (Eff t [STATE x]) -> Eff t [STATE y]
-export
-($:) : 
-     {t : Telescope a}
-  -> (f : PIO (Obj sig))
-  -> {auto pf : sig "__call__" = Call t}
-  -> (args : a)
-  -> PIO $ retTy t args
-($:) meth args = meth >>= \m => m $. args
--}
+
+  infixl 4 $<
+  ||| Duck-typed function call, useful for chaining. Equivilent to PIO ($:)
+  ($<) : {t : Telescope a}
+      -> (f : Eff (Obj pySig) [PYIO])
+      -> {auto pf : pySig "__call__" = Call t}
+      -> (args : a)
+      -> Eff (retTy t args) [PYIO]
+  ($<) meth args = meth >>= \m => m $> args
+
 
 putStr' : String -> Eff () [PYIO]
 putStr' s = call $ PutStr' s
