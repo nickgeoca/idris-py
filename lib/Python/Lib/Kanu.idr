@@ -249,10 +249,10 @@ cross_entropy y t = reduceMeanAll $ -1 *. reduce_sum (t * log y) [1] False
 -- lr=0.01, momentum=0., decay=0., nesterov=False,
 
 private
-zipWith : (fn : {s1 : Shape} -> {s2 : Shape} -> {dt1 : ElemType} -> {dt2 : ElemType}
-             -> Tensor s1 dt1 
-             -> Tensor s2 dt2 
-             -> Eff () [PYIO] [PYIO]
+zipWith : (fn : {s : Shape} -> {dt : ElemType}
+             -> Tensor s dt 
+             -> Tensor s dt 
+             -> Eff () [PYIO]
           )
      -> Tensors tys
      -> Tensors tys 
@@ -284,7 +284,7 @@ sgd {wTys} weights (MkT lossPy) = zipWith update weights weightGrads
   weightGrads : Tensors wTys
   weightGrads = gradients weights loss  -- QUESTION: Diff between passing list of tensors vs single tensor? Seems to be time vs mem tradeoff
   
-  update : Tensor s dt -> Tensor s dt -> Eff () [PYIO] [PYIO]
+  update : {s : Shape} -> {dt : ElemType} -> Tensor s dt -> Tensor s dt -> Eff () [PYIO]
   update w g = assign w newWeight
     where newWeight = w + (-1 *. (1 / 100) *. g) -- BUG: ? this operation must involve float math, but permitting any ElemType
 
