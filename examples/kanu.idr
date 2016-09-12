@@ -15,8 +15,9 @@ import Python.Lib.Kanu
 
 --------------------------------------------------
 -- Miscelaneous functions
-printOpParam : ToPyPlaceholders phs => Session -> Tensor xs dt -> Eff () ['Phs ::: (STATE phs), PYIO] 
-printOpParam sess t = printLn' !(runM sess t)
+printOpParam : ToPyPlaceholders phs => Session -> Tensor xs dt -> Eff () ['Phs ::: (STATE phs), PYIO]
+printOpParam sess t = do result <- runM sess t
+                         printLn' result
   
 
 -- NOTE: Ran this w/ placeholder code and threw runtime error
@@ -33,7 +34,7 @@ weights dt = [([10], dt),([784, 10], dt),([10], dt),([784, 10], dt)]
 model : Tensor [batchDim, 784] dt
      -> Eff (NNData [batchDim, 10] dt (weights dt)) 
             ['NN ::: STATE (Tensors []), PYIO] 
-            ['NN ::: STATE (NNData [batchDim, 10] dt (weights dt)), PYIO]
+            ['NN ::: STATE (), PYIO]
 model x = 
   do start x
      dense 10
@@ -44,7 +45,10 @@ model x =
      y2 <- stop
 
      y1 * y2
-     end
+
+     d <- end
+     'NN :- putM ()
+     return d
 
 
 modelx : Tensor s dt
@@ -66,23 +70,33 @@ implementation ToPyPlaceholders Parameters where
 -- Main
 
 
-main : PIO ()
-main =  
-  do runInit ['NN := (the (Tensors []) (MkTs [])), 'Phs := phs, ()]( -- ['Phs := phs, 'NN := (MkTs []), ()] (
-       do sess <- initSess
-          x <- placeholder X set_X 
-          (MkNND y ws) <- model x
-          -- printOpParam y
-          -- sgd ws (believe_me ones) -- (cross_entropy y (constant(full 0.5)))  
-          -- printOpParam y
-          pure ()
-       )
+
+mainEff : TransEff.Eff () ['NN ::: (STATE (Tensors [])), 'Phs ::: (STATE Parameters), PYIO]
+                          ['NN ::: (STATE ())          , 'Phs ::: (STATE ())        , PYIO]
+mainEff =        
+  do sess <- initSess
+     x <- placeholder X set_X 
+
+     (MkNND y ws) <- model x
+
+     printOpParam sess y
+     sgd ws (cross_entropy y $ the (Tensor [2, 10] Float32) $ constant $ full 0.5)
+     printOpParam sess y
+
+     'Phs :- putM ()
      pure ()
   where
-  phs : Parameters
-  phs = MkParams (MkPh Nothing (full 3.14))
   initSess : Eff Session [PYIO]
   initSess = do sess <- session
                 op.run sess initialize_all_variables
                 return sess
+
+
+main : PIO ()
+main =  
+  do runInit ['NN := (the (Tensors []) (MkTs [])), 'Phs := phs, ()] mainEff
+     pure ()
+  where
+  phs : Parameters
+  phs = MkParams (MkPh Nothing (full 3.14))
 
