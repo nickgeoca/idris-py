@@ -7,8 +7,6 @@ import public Python.Fields
 import public Python.Functions
 import public Python.Exceptions
 
-import public Data.List.Quantifiers
-
 %default total
 %access public export
 
