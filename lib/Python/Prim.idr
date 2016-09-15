@@ -18,6 +18,7 @@ Iterator a f = case f of
 Iterable : Type -> Signature
 Iterable a f = case f of
   "__iter__" => [] ~~> Obj (Iterator a)
+  "__str__" => [] ~~> String
   _ => Object f
 
 ||| Python string as object.
@@ -89,18 +90,10 @@ namespace Builtins
 pyList : List a -> Obj $ PyList a
 pyList {a=a} xs = unsafePerformIO (builtins /. "list" $. [Erase a, xs])
 
+
 pyDictionary : List (k,v) -> Dictionary (k,v)
 pyDictionary {k=k} {v=v} xs = MkDict $ unsafePerformIO (builtins /. "dict" $. [Erase (k,v), xs])
 
-{-
-    -- "dict" => [Obj $ PyList (a,b)] ~~> Dictionary_P
-pyDictionary : List (k,v) -> Dictionary_P (k,v)
-pyDictionary {k=k} {v=v} xs = unsafePerformIO (builtins /. "dict" $. [Erase (k,v), xs])
-pyDictionary : List (k,v) -> Dictionary_P (k,v)
-pyDictionary {k=k} {v=v} xs = unsafePerformIO (builtins /. "dict" $. [Erase (k,v), xs])
-pyDictionary : List kv -> Dictionary_P kv
-pyDictionary {kv=kv} xs = unsafePerformIO (builtins /. "dict" $. [pyList xs])
--}
 
 ||| Promote a primitive to an object. Note that this is a no-oop,
 ||| all primitives already are objects in Python.
@@ -163,27 +156,8 @@ partial
 collect : (it : Obj sig) -> {auto pf : sig "__iter__" = [] ~~> Obj (Iterator a)} -> PIO (List a)
 collect it = reverse <$> foreach it List.Nil (\xs, x => return (x :: xs))
 
+-- TODO: Make collect/fromPyList more efficient
+-- TODO: Consider just using PyList as native list  
+fromPyList : Obj $ PyList a -> List a 
+fromPyList {a=a} xs = unsafePerformIO $ collect xs
 
--- TODO: Is using constraint (Show a) correct? Some things in Idris that are part of show may not translate to python
-
-
-
-           
---implementation Show Tensor_P where
---  show x = unsafePerformIO $ x /. "__str__" $. []
-
-
-{-
-implementation Show a => Show (Dictionary_P a) where
-  show d = show d
--}
---     Can't find implementation for Show (Obj (Dictionary_PS a))
-
-{-
-When checking right hand side 
-of (Dictionary_P a) implementation of Show, 
-method showPrec with expected type
-   Dictionary_P a -> String
-     
-Can't find implementation for Show (Obj (Dictionary_PS a))
--- -}
