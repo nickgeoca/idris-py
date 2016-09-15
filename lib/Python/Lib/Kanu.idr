@@ -119,7 +119,7 @@ NN : (ty : (Shape, ElemType))
   -> Type
 NN (s, dt) wTys
   = Eff (NNData s dt wTys) ['NN ::: STATE (NNData s dt wTys), PYIO] 
-                           ['NN ::: STATE (NNData s dt wTys), PYIO] 
+                           ['NN ::: STATE (), PYIO] 
 
 
 
@@ -184,7 +184,9 @@ stop = do (MkNND t ws) <- 'NN :- get
 
 export
 end : NN (s,dt) wTys
-end = 'NN :- get
+end = do d <- 'NN :- get
+         'NN :- putM ()
+         return d
 
 --------------------------------------------------
 -- Math functions
@@ -237,7 +239,7 @@ export
 cross_entropy : (y : Tensor s dt) 
              -> (t : Tensor s dt) 
              -> Tensor [] dt
-cross_entropy y t = reduceMeanAll $ -1 *. reduce_sum (t * log y) [1] False
+cross_entropy y t = reduceMeanAll $ neg $ reduce_sum (t * log y) [1] False
   where
   reduceMeanAll : Tensor _ dt -> Tensor [] dt
   reduceMeanAll x = reduce_mean' x False
@@ -252,14 +254,15 @@ private
 zipWith : (fn : {s : Shape} -> {dt : ElemType}
              -> Tensor s dt 
              -> Tensor s dt 
-             -> Eff () [PYIO]
+             -> Eff Op [PYIO] [PYIO]
           )
      -> Tensors tys
      -> Tensors tys 
-     -> Eff () [PYIO]
+     -> Eff (List Op) [PYIO]
 zipWith {tys=(s,dt)::tys} fn (MkTs (t1Py::ts1Py)) (MkTs (t2Py::ts2Py)) = 
-  do fn t1 t2
-     zipWith fn ts1 ts2
+  do op  <- fn t1 t2
+     ops <- zipWith fn ts1 ts2
+     pure $ op :: ops
   where 
   t1 : Tensor s dt
   t2 : Tensor s dt
@@ -270,13 +273,12 @@ zipWith {tys=(s,dt)::tys} fn (MkTs (t1Py::ts1Py)) (MkTs (t2Py::ts2Py)) =
   t2 = MkT t2Py
   ts1 = MkTs ts1Py
   ts2 = MkTs ts2Py
-zipWith _ _ _ = pure ()
-
+zipWith _ _ _ = pure []
 
 export
 sgd : (weights : Tensors wTys)  -- TODO: Is it better to constrain weights or something to variables only????
    -> (loss    : Tensor [] dt) -- Be careful if change this line of code
-   -> Eff () [PYIO]
+   -> Eff (List Op) [PYIO]
 sgd {wTys} weights (MkT lossPy) = zipWith update weights weightGrads
   where
   loss : Tensors [([],dt)]
@@ -284,10 +286,15 @@ sgd {wTys} weights (MkT lossPy) = zipWith update weights weightGrads
   weightGrads : Tensors wTys
   weightGrads = gradients weights loss  -- QUESTION: Diff between passing list of tensors vs single tensor? Seems to be time vs mem tradeoff
   
-  update : {s : Shape} -> {dt : ElemType} -> Tensor s dt -> Tensor s dt -> Eff () [PYIO]
-  update w g = assign w newWeight
-    where newWeight = w + (-1 *. (1 / 100) *. g) -- BUG: ? this operation must involve float math, but permitting any ElemType
-
+  update : {dt : ElemType} -> {s : Shape} -> Tensor s dt -> Tensor s dt -> Eff Op [PYIO] [PYIO]
+  update w g = assign w ones
+{-
+    where
+    lr : Tensor [] dt
+    lr {dt} = (the (Tensor [] dt) cast 1) / (cast (Tensor [] dt) 100)
+    newWeight : Tensor s dt
+    newWeight = w + lr *. g -- TODO: This operation must involve float math.
+-}
 
 {-
 <Melvar> linman: Not exactly, but a pattern-matching bind becomes a case, 
@@ -329,4 +336,3 @@ opt
  
  
  
-

@@ -28,20 +28,6 @@ TensorElemType_PS f = case f of
 TensorElemType_P : Type
 TensorElemType_P = Obj TensorElemType_PS
 
-
--------------------------------------------------- 
--- Tensor Variable
-Variable_PS : Signature
-Variable_PS f = case f of
-  "__str__" => [] ~~> String
-  "assign"  => [Tensor_P] ~~> ()
-  _ => Object f
-
-Variable_P : Type
-Variable_P = Obj Variable_PS
-
-
-
 -------------------------------------------------- 
 -- Op type
 Op_PS : Signature
@@ -51,6 +37,17 @@ Op_PS f = case f of
 
 Op_P : Type
 Op_P = Obj Op_PS
+
+-------------------------------------------------- 
+-- Tensor Variable
+Variable_PS : Signature
+Variable_PS f = case f of
+  "__str__" => [] ~~> String
+  "assign"  => [Tensor_P] ~~> Op_P
+  _ => Object f
+
+Variable_P : Type
+Variable_P = Obj Variable_PS
 
 -------------------------------------------------- 
 -- Fetch type
@@ -73,8 +70,9 @@ GraphElem_P = Obj GraphElem_PS
 
 
 Session_PS : Signature
-Session_PS f = case f of
- "run" => [Fetch_P, Dictionary_P (Tensor_P, Arr)] ~~> Fetch_P -- NOTE: The return on this signature is incorrect and must be cast.
+Session_PS f = case f of -- TODO: Is the signature on run List Fetch_P or List Op_P
+ "__str__" => [] ~~> String
+ "run" => [Obj $ PyList Fetch_P, Dictionary_P (Tensor_P, Arr)] ~~> Obj (PyList Fetch_P) -- NOTE: The return on this signature is incorrect and must be cast.
  "close" => [] ~~> ()
  _ => Object f
 
@@ -157,15 +155,15 @@ TensorFlow f = case f of
   "placeholder" => [TensorElemType_P, Obj $ PyList Nat] ~~> Tensor_P
 
   -- Training
-  "gradients" => [List Tensor_P, List Tensor_P, Maybe $ List Tensor_P, String, Bool, Bool] ~~> List Tensor_P
+  "gradients" => [Obj $ PyList Tensor_P, Obj $ PyList Tensor_P, Maybe $ Obj $ PyList Tensor_P, String, Bool, Bool] ~~> Obj (PyList Tensor_P)
 
   -- Module
   _ => Module f
 
 TensorFlowKludge : Signature
 TensorFlowKludge f = case f of
-  "test" => [] ~~> List (Tensor_P)
-  "while_loop" => [List (Tensor_P) -> Bool, List (Tensor_P) -> List (Tensor_P), List (Tensor_P), Int, Bool, Bool] ~~> List (Tensor_P)
+  -- "test" => [] ~~> List (Tensor_P) -- Change to Obj $ PyList Tensor_P
+  -- "while_loop" => [List (Tensor_P) -> Bool, List (Tensor_P) -> List (Tensor_P), List (Tensor_P), Int, Bool, Bool] ~~> List (Tensor_P)
   _ => Module f
 
 

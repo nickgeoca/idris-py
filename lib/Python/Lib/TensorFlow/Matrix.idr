@@ -66,7 +66,7 @@ data Tensor : (shape : Shape) -> (dtype : ElemType) -> Type where
 data Tensors : (xs : List (Shape, ElemType)) -> Type where
   MkTs : List Tensor_P -> Tensors xs
 
-export
+public export
 (#>) : Tensor s dt 
     -> Tensors tys
     -> Tensors ((s,dt)::tys)
@@ -80,8 +80,7 @@ data Session : Type where
   MkS : Session_P -> Session
 
 unwrapSess : Session -> Session_P
-unwrapSess s = case s of 
-               (MkS s') => s'
+unwrapSess (MkS s) = s
 
 
 -- private 
@@ -100,6 +99,9 @@ implementation Show (Tensor xs dt) where
 
 implementation Show (Tensor xs dt) where
   show (MkT x) = unsafePerformIO $ x /. "__str__" $. []
+
+implementation Show (Session) where
+  show (MkS s) = unsafePerformIO $ s /. "__str__" $. []
 
 
 -------------------------
@@ -160,7 +162,7 @@ implementation Cast NpElemType ElemType where
 implementation Cast (Shape, ElemType) (Shape, NpElemType) where
   cast (s,e) = (s, cast e)
 
-implementation Cast (Vect n (Shape, ElemType)) (Vect n (Shape, NpElemType)) where
+implementation Cast (List (Shape, ElemType)) (List (Shape, NpElemType)) where
   cast v = map cast v
 
 implementation Cast (Vect n a) (List a) where
@@ -261,15 +263,20 @@ namespace t
   export 
   run : (ToPyPlaceholders phs) 
      => Session
-     -> (fetch : Tensor xs dt)
+     -> (fetches : Tensors tys)
      -> phs
-     -> Eff (MatrixN xs $ cast dt) [PYIO]
-  run (MkS sess) (MkT fetch) placeholders = 
-    do m <- sess /. "run" $> [believe_me fetch, feed_dict placeholders]  -- NOTE: fetch should not be a placeholder
-       return $ MkM' (believe_me  m)
+     -> Eff (Matrices $ cast tys) [PYIO]
+  run (MkS sess) (MkTs fetchesPy) placeholders = 
+    do msPy' <- sess /. "run" $> [opsPy, feed_dict placeholders]  -- NOTE: fetch should not be a placeholder
+       let msPy = the (Obj $ PyList Arr) $ believe_me msPy'
+       return $ MkMs $ fromPyList msPy
     where
     feed_dict : (ToPyPlaceholders phs) => phs -> Dictionary_P (Tensor_P, Arr) 
     feed_dict phs = dict $ pyDictionary $ toPyPlaceholders phs
+    opsPy : Obj (PyList Fetch_P)
+    opsPy = pyList $ map (\x=>the Fetch_P (believe_me x)) fetchesPy
+
+
 
   ||| tf.Session.run(fetches, feed_dict=None, options=None, run_metadata=None)
   ||| feed_dict (phs) is passed as effect State. See run
@@ -277,25 +284,30 @@ namespace t
   export 
   runM : (ToPyPlaceholders phs) 
      => Session
-     -> (fetch : Tensor xs dt)
-     -> Eff (MatrixN xs $ cast dt) ['Phs ::: STATE phs, PYIO]
-  runM (MkS sess) (MkT fetch) = 
+     -> (fetches : Tensors tys)
+     -> Eff (Matrices $ cast tys) ['Phs ::: STATE phs, PYIO]
+  runM (MkS sess) (MkTs fetchesPy) = 
     do placeholders <- 'Phs :- get
-       m <- sess /. "run" $> [believe_me fetch, feed_dict placeholders]  -- BUG: fetch should not be a placeholder
-       return $ MkM' (believe_me m)
+       msPy' <- sess /. "run" $> [opsPy, feed_dict placeholders]  -- BUG: fetch should not be a placeholder
+       let msPy = the (Obj $ PyList Arr) $ believe_me msPy'
+       return $ MkMs $ fromPyList msPy
     where
     feed_dict : (ToPyPlaceholders phs) => phs -> Dictionary_P (Tensor_P, Arr) 
     feed_dict phs = dict $ pyDictionary $ toPyPlaceholders phs
+    opsPy : Obj (PyList Fetch_P)
+    opsPy = pyList $ map (\x=>the Fetch_P (believe_me x)) fetchesPy
 
 namespace op
   export 
-  run : Session -> Op -> Eff () [PYIO]
-  run (MkS sess) (MkOp fetch) = 
-    do sess /. "run" $> [believe_me fetch, feed_dict] 
+  run : Session -> List Op -> Eff () [PYIO]
+  run (MkS sessPy) fetches = 
+    do sessPy /. "run" $> [opsPy, feed_dict] 
        return ()
     where
     feed_dict : Dictionary_P (Tensor_P, Arr) 
     feed_dict = dict $ pyDictionary $ toPyPlaceholders ()
+    opsPy : Obj (PyList Fetch_P)
+    opsPy = pyList $ map (\(MkOp o)=>the Fetch_P (believe_me o)) fetches
 
 export 
 close : Session
@@ -326,10 +338,10 @@ variable {dt=dt} (MkT initial_value) = MkT <$> (tf /. "Variable" $> [initial_val
 export 
 assign : (var : Tensor xs dt) 
       -> (val : Tensor xs dt)
-      -> Eff () [PYIO]
+      -> Eff Op [PYIO] [PYIO]
 assign (MkT varPy) (MkT valPy) = 
-  do (the (Variable_P) $ believe_me varPy) /. "assign" $> [valPy]
-     return ()
+  do oPy <- (the (Variable_P) $ believe_me varPy) /. "assign" $> [valPy]
+     return $ MkOp oPy
 
 
 -- NOTE: minval/maxval can be python scalar (eg Double) or a TF Tensor
@@ -632,7 +644,10 @@ gradients : {ysT : List (Shape, ElemType)}
          -> (xs : Tensors xsT)
          -> Tensors ysT
 gradients (MkTs ys) (MkTs xs) 
-  = MkTs . unsafePerformIO $ tf /. "gradients" $. [ys, xs, Nothing, "gradients", True, False]
+  = MkTs . unsafePerformIO $ gs
+  where
+  gs : PIO $ List Tensor_P
+  gs = fromPyList <$> (tf /. "gradients" $. [pyList ys, pyList xs, Nothing, "gradients", True, False])
 
 
 ----------------------------------------------------------------------------------------------------
@@ -641,6 +656,10 @@ implementation Num (Tensor [] dt) where
   (*) = mul
   fromInteger = believe_me -- TODO/BUG: Consider how to handle this case. There is no Integer type (abitrary precision integer) in tensorflow.
                            -- TODO/BUG:  fromInteger : Num ty => Integer -> ty
+
+implementation Fractional (Tensor [] dt) where
+  (/) = div
+  recip {dt} x = div {xs=[]} {dt=dt} ones x
 
 implementation Neg (Tensor [] dt) where
   negate = neg
