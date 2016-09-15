@@ -259,7 +259,7 @@ zipWith : (fn : {s : Shape} -> {dt : ElemType}
      -> Tensors tys
      -> Tensors tys 
      -> Eff (List Op) [PYIO]
-zipWith {tys=(s,dt)::tys} fn (MkTs (t1Py::ts1Py)) (MkTs (t2Py::ts2Py)) = 
+zipWith {tys=(s,dt)::tys} fn (MkTs (t1Py::ts1Py)) (MkTs (t2Py::ts2Py)) =
   do op  <- fn t1 t2
      ops <- zipWith fn ts1 ts2
      pure $ op :: ops
@@ -287,7 +287,7 @@ sgd {wTys} weights (MkT lossPy) = zipWith update weights weightGrads
   weightGrads = gradients weights loss  -- QUESTION: Diff between passing list of tensors vs single tensor? Seems to be time vs mem tradeoff
   
   update : {dt : ElemType} -> {s : Shape} -> Tensor s dt -> Tensor s dt -> Eff Op [PYIO]
-  update w g = assign w (fnNewWeight w g)
+  update {dt} {s} w g = assign w (fnNewWeight w g)
     where
     lr : Tensor [] dt
     lr = believe_me 0.01 -- TODO: Fix this. Should infer 0.01 is Float32
