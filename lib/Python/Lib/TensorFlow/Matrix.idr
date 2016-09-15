@@ -651,17 +651,29 @@ gradients (MkTs ys) (MkTs xs)
 
 
 ----------------------------------------------------------------------------------------------------
-implementation Num (Tensor [] dt) where
+--   fromInteger = believe_me -- TODO/BUG: Consider how to handle this case. There is no Integer type (abitrary precision integer) in tensorflow.
+
+implementation Num (Tensor [] Int32) where
   (+) = add
   (*) = mul
-  fromInteger = believe_me -- TODO/BUG: Consider how to handle this case. There is no Integer type (abitrary precision integer) in tensorflow.
-                           -- TODO/BUG:  fromInteger : Num ty => Integer -> ty
+  fromInteger = believe_me
 
-implementation Fractional (Tensor [] dt) where
+implementation Num (Tensor [] Float32) where
+  (+) = add
+  (*) = mul
+  fromInteger = believe_me
+
+
+implementation Fractional (Tensor [] Float32) where
   (/) = div
-  recip {dt} x = div {xs=[]} {dt=dt} ones x
+  recip x = div {xs=[]} {dt=Float32} ones x
 
-implementation Neg (Tensor [] dt) where
+implementation Neg (Tensor [] Int32) where
+  negate = neg
+  (-) = sub
+  abs = Python.Lib.TensorFlow.Matrix.abs
+      
+implementation Neg (Tensor [] Float32) where
   negate = neg
   (-) = sub
   abs = Python.Lib.TensorFlow.Matrix.abs
