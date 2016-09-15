@@ -286,15 +286,13 @@ sgd {wTys} weights (MkT lossPy) = zipWith update weights weightGrads
   weightGrads : Tensors wTys
   weightGrads = gradients weights loss  -- QUESTION: Diff between passing list of tensors vs single tensor? Seems to be time vs mem tradeoff
   
-  update : {dt : ElemType} -> {s : Shape} -> Tensor s dt -> Tensor s dt -> Eff Op [PYIO] [PYIO]
-  update w g = assign w ones
-{-
+  update : {dt : ElemType} -> {s : Shape} -> Tensor s dt -> Tensor s dt -> Eff Op [PYIO]
+  update w g = assign w (fnNewWeight w g)
     where
     lr : Tensor [] dt
-    lr {dt} = (the (Tensor [] dt) cast 1) / (cast (Tensor [] dt) 100)
-    newWeight : Tensor s dt
-    newWeight = w + lr *. g -- TODO: This operation must involve float math.
--}
+    lr = believe_me 0.01 -- TODO: Fix this. Should infer 0.01 is Float32
+    fnNewWeight : Tensor s dt -> Tensor s dt -> Tensor s dt
+    fnNewWeight w g = w + lr *. g -- TODO: This operation must involve float math.
 
 {-
 <Melvar> linman: Not exactly, but a pattern-matching bind becomes a case, 
