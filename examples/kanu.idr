@@ -10,19 +10,36 @@ import Python.Lib.TensorFlow.Matrix
 import Python.Lib.Numpy
 import Python.Lib.Numpy.Matrix
 import Python.Lib.Kanu
+import Python.Lib.Numpy.Matrix as Np
 
 %default total
 
 --------------------------------------------------
 -- Miscelaneous functions
-printOpParam : ToPyPlaceholders phs => Session -> Tensor xs dt -> Eff () ['Phs ::: (STATE phs), PYIO]
-printOpParam sess t = do result <- runM sess t
-                         printLn' result
+printOpParam : ToPyPlaceholders phs => Session -> Tensor s dt -> Eff () ['Phs ::: STATE phs, PYIO] 
+printOpParam {s} {dt} sess t = 
+  do result <- runM sess ts
+     printLn' result
+  where
+  ts : Tensors [(s,dt)]
+  ts = t #> (MkTs [])
   
+{-
+-- NOTE: Ran this w/ placeholder code and threw runtime error
+printOp : Session -> Tensor s dt -> Eff () [PYIO] 
+printOp {s} {dt} sess t = 
+  do ms <- t.run sess ts ()
+     case ms of
+       (MkMs m :: _) => printLn' (the (MatrixN s (cast dt)) $MkM' m)
+       _ => pure ()
+  where
+  ts : Tensors [(s,dt)]
+  ts = t #> (MkTs [])
+-}
 
 -- NOTE: Ran this w/ placeholder code and threw runtime error
-printOp : Session -> Tensor xs dt -> Eff () [PYIO] 
-printOp sess op = printLn' !(run sess op ())
+runOps : Session -> List Op -> Eff () [PYIO] 
+runOps sess ops = op.run sess ops
 
 --------------------------------------------------
 -- Model
@@ -45,10 +62,7 @@ model x =
      y2 <- stop
 
      y1 * y2
-
-     d <- end
-     'NN :- putM ()
-     return d
+     end
 
 
 modelx : Tensor s dt
@@ -69,18 +83,18 @@ implementation ToPyPlaceholders Parameters where
 --------------------------------------------------
 -- Main
 
-
-
-mainEff : TransEff.Eff () ['NN ::: (STATE (Tensors [])), 'Phs ::: (STATE Parameters), PYIO]
-                          ['NN ::: (STATE ())          , 'Phs ::: (STATE ())        , PYIO]
+mainEff : TransEff.Eff () ['NN ::: STATE (Tensors []), 'Phs ::: STATE Parameters, PYIO]
+                          ['NN ::: STATE ()          , 'Phs ::: STATE ()        , PYIO]
 mainEff =        
-  do sess <- initSess
-     x <- placeholder X set_X 
-
+  do x <- placeholder X set_X 
      (MkNND y ws) <- model x
 
+     sess <- initSess -- NOTE: This line must go below the model
+
+     let loss = cross_entropy y half
      printOpParam sess y
-     sgd ws (cross_entropy y $ the (Tensor [2, 10] Float32) $ constant $ full 0.5)
+     ops <- sgd ws loss
+     runOps sess ops
      printOpParam sess y
 
      'Phs :- putM ()
@@ -88,9 +102,10 @@ mainEff =
   where
   initSess : Eff Session [PYIO]
   initSess = do sess <- session
-                op.run sess initialize_all_variables
+                op.run sess [initialize_all_variables]
                 return sess
-
+  half : Tensor [2,10] Float32
+  half = constant $ the (MatrixN [2,10] Np.Float32) $ full 0.5
 
 main : PIO ()
 main =  
@@ -100,3 +115,18 @@ main =
   phs : Parameters
   phs = MkParams (MkPh Nothing (full 3.14))
 
+-- -}
+
+{-
+mainEff : Eff () [PYIO]
+mainEff = printOp !session $ !(variable (the (Tensor [2,2] Float32) !glorot_uniform)) 
+
+
+main : PIO ()
+main =  
+  do runInit [()] mainEff
+     pure ()
+  where
+  phs : Parameters
+  phs = MkParams (MkPh Nothing (full 3.14))
+-- -}
