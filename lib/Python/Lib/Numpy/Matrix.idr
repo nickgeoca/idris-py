@@ -4,7 +4,6 @@ import Python
 import Python.Prim
 import Python.Lib.Numpy
 
-import Data.List.Quantifiers
 import Data.Vect
 
 %access public export
@@ -93,14 +92,10 @@ record MatrixN (shape : List Nat) (dtype : NpElemType) where
   arr' : Obj NDArray
 
 
-MatrixList : List (List Nat, NpElemType) -> Type 
-MatrixList ts = All fn ts
-  where fn : (List Nat, NpElemType) -> Type
-        fn (xs,dt) = MatrixN xs dt
+data Matrices : (xs : List (List Nat, NpElemType)) -> Type where
+  MkMs : List Arr -> Matrices xs
 
 
-Matrices : {n : Nat} -> (dtMs : Vect n (List Nat, NpElemType)) -> Type
-Matrices {n=n} _ = Vect n Arr
 
 export -- Different
 unsafeNp : PIO (Obj NDArray) -> Matrix r c dt
@@ -176,3 +171,11 @@ implementation Show (Matrix r c dt) where
 implementation Show (MatrixN xs dt) where
   -- show (MkM' x) = show x
   show (MkM' x) = unsafePerformIO $ x /. "__str__" $. []
+
+
+implementation Show (Matrices tys) where 
+  show (MkMs xs) = unsafePerformIO $ s /. "__str__" $. []
+    where 
+    s : Obj (PyList Arr)
+    s = pyList xs
+
