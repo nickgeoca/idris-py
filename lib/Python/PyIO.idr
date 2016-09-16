@@ -70,6 +70,11 @@ putStr' s = call $ PutStr' s
 putStrLn' : String -> Eff () [PYIO]
 putStrLn' s = putStr' (s ++ "\n")
 
+||| Output something showable to stdout, without a trailing newline, for any FFI
+||| descriptor
+print' : Show ty => ty -> Eff () [PYIO]
+print' a = putStr' (show a)
+
 ||| Output something showable to stdout, with a trailing newline, for any FFI
 ||| descriptor
 printLn' : Show ty => ty -> Eff () [PYIO]
