@@ -97,8 +97,7 @@ mainEff =
      (MkNND y ws) <- model x
 
      sess <- initSess -- NOTE: This line must go below the model
-
-     trainStep 30 sess ws y 
+     trainStep 600 sess ws y 
 
      print' "Loss : "
      printOpParam sess $ cross_entropy y half
@@ -121,13 +120,13 @@ mainEff =
            -> Eff () ['Phs ::: STATE Parameters, PYIO]
   trainStep Z sess ws y = pure ()
   trainStep (S cntr) sess ws y = 
-    do let loss = cross_entropy y half
+    do -- let loss = cross_entropy y half
        print' "Loss : "
-       printOpParam sess loss
-       print' "Model: "
-       printOpParam sess y
-       ops <- sgd ws loss
-       runOps2 sess ops
+       -- printOpParam sess loss
+       -- print' "Model: "
+       -- printOpParam sess y
+       -- ops <- sgd ws loss
+       -- runOps2 sess ops
        trainStep cntr sess ws y
 
 
