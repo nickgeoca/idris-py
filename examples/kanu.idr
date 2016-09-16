@@ -41,11 +41,15 @@ printOp {s} {dt} sess t =
 runOps : Session -> List Op -> Eff () [PYIO] 
 runOps sess ops = op.run sess ops
 
+runOps2 : ToPyPlaceholders phs => Session -> List Op -> Eff () ['Phs ::: STATE phs, PYIO] 
+runOps2 sess ops = op.runPhs sess ops
+
 --------------------------------------------------
 -- Model
 
 weights : ElemType -> List (Shape, ElemType)
-weights dt = [([10], dt),([784, 10], dt),([10], dt),([784, 10], dt)]
+weights dt = [([10], dt),([784, 10], dt)]
+--weights dt = [([10], dt),([784, 10], dt),([10], dt),([784, 10], dt)]
 
 
 model : Tensor [batchDim, 784] dt
@@ -55,6 +59,8 @@ model : Tensor [batchDim, 784] dt
 model x = 
   do start x
      dense 10
+     end
+{-
      y1 <- stop
 
      start x
@@ -63,6 +69,7 @@ model x =
 
      y1 * y2
      end
+-}
 
 
 modelx : Tensor s dt
@@ -91,11 +98,13 @@ mainEff =
 
      sess <- initSess -- NOTE: This line must go below the model
 
-     let loss = cross_entropy y half
+     trainStep 30 sess ws y 
+
+     print' "Loss : "
+     printOpParam sess $ cross_entropy y half
+     print' "Model : "
      printOpParam sess y
-     ops <- sgd ws loss
-     runOps sess ops
-     printOpParam sess y
+
 
      'Phs :- putM ()
      pure ()
@@ -105,7 +114,22 @@ mainEff =
                 op.run sess [initialize_all_variables]
                 return sess
   half : Tensor [2,10] Float32
-  half = constant $ the (MatrixN [2,10] Np.Float32) $ full 0.5
+  half = constant $ the (MatrixN [2,10] Np.Float32) $ full 0.1
+  trainStep : Nat -> Session 
+           -> Tensors tys 
+           -> Tensor [2, 10] Float32
+           -> Eff () ['Phs ::: STATE Parameters, PYIO]
+  trainStep Z sess ws y = pure ()
+  trainStep (S cntr) sess ws y = 
+    do let loss = cross_entropy y half
+       print' "Loss : "
+       printOpParam sess loss
+       print' "Model: "
+       printOpParam sess y
+       ops <- sgd ws loss
+       runOps2 sess ops
+       trainStep cntr sess ws y
+
 
 main : PIO ()
 main =  

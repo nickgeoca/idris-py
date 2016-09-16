@@ -3,7 +3,7 @@ module Python.Lib.Kanu
 import Python
 import Python.Prim
 import Python.Lib.Numpy.Random as Random
-import Python.Lib.Numpy.Matrix
+import Python.Lib.Numpy.Matrix as Np
 import Python.Lib.TensorFlow.Matrix
 import Python.Lib.TensorFlow.NN
 import Python.Lib.TensorFlow
@@ -61,7 +61,7 @@ glorot_uniform {shape} = uniform scale
   where
   scale : Double
   scale = case getFans shape of
-               (fanIn, fanOut) => sqrt $ 6 / (fanIn + fanOut)
+               (fanIn, fanOut) => sqrt $ 6.0 / (fanIn + fanOut)
 ----------------------------------------------------------------------------------------------------
 -- Misc functions
 export 
@@ -120,15 +120,6 @@ NN : (ty : (Shape, ElemType))
 NN (s, dt) wTys
   = Eff (NNData s dt wTys) ['NN ::: STATE (NNData s dt wTys), PYIO] 
                            ['NN ::: STATE (), PYIO] 
-
-
-
-{- Did not parameterize w/ layer's weights b/c following error when running in functions
- |                   Type mismatch between
- |                           wTys
- |                   and
- |                           wTys ++ []
--}
 
 
 --------------------------------------------------
@@ -275,24 +266,25 @@ zipWith {tys=(s,dt)::tys} fn (MkTs (t1Py::ts1Py)) (MkTs (t2Py::ts2Py)) =
   ts2 = MkTs ts2Py
 zipWith _ _ _ = pure []
 
+private
+updateWt : {dt : ElemType} -> {s : Shape} -> Tensor s dt -> Tensor s dt -> Eff Op [PYIO] [PYIO]
+updateWt {dt} {s} w g = assign w (fnNewWeight w g)
+  where
+  lr : Tensor [] dt
+  lr = cast $ constant $ the (MatrixN [] Np.Float32) $ full 0.002
+  fnNewWeight : Tensor s dt -> Tensor s dt -> Tensor s dt
+  fnNewWeight w g = w - lr *. g -- TODO: This operation must involve float math.
+
 export
 sgd : (weights : Tensors wTys)  -- TODO: Is it better to constrain weights or something to variables only????
    -> (loss    : Tensor [] dt) -- Be careful if change this line of code
    -> Eff (List Op) [PYIO]
-sgd {wTys} weights (MkT lossPy) = zipWith update weights weightGrads
+sgd {wTys} weights (MkT lossPy) = zipWith updateWt weights weightGrads
   where
   loss : Tensors [([],dt)]
   loss = MkTs [lossPy]
   weightGrads : Tensors wTys
-  weightGrads = gradients weights loss  -- QUESTION: Diff between passing list of tensors vs single tensor? Seems to be time vs mem tradeoff
-  
-  update : {dt : ElemType} -> {s : Shape} -> Tensor s dt -> Tensor s dt -> Eff Op [PYIO]
-  update {dt} {s} w g = assign w (fnNewWeight w g)
-    where
-    lr : Tensor [] dt
-    lr = believe_me 0.01 -- TODO: Fix this. Should infer 0.01 is Float32
-    fnNewWeight : Tensor s dt -> Tensor s dt -> Tensor s dt
-    fnNewWeight w g = w + lr *. g -- TODO: This operation must involve float math.
+  weightGrads = gradients loss weights   -- QUESTION: Diff between passing list of tensors vs single tensor? Seems to be time vs mem tradeoff
 
 {-
 <Melvar> linman: Not exactly, but a pattern-matching bind becomes a case, 
