@@ -100,6 +100,12 @@ implementation Show (Tensor xs dt) where
 implementation Show (Tensor xs dt) where
   show (MkT x) = unsafePerformIO $ x /. "__str__" $. []
 
+implementation Show (Tensors tys) where
+  show (MkTs xs) = unsafePerformIO $ s /. "__str__" $. []
+    where
+    s : Obj (PyList Tensor_P)
+    s = pyList xs
+
 implementation Show (Session) where
   show (MkS s) = unsafePerformIO $ s /. "__str__" $. []
 
@@ -308,6 +314,21 @@ namespace op
     feed_dict = dict $ pyDictionary $ toPyPlaceholders ()
     opsPy : Obj (PyList Fetch_P)
     opsPy = pyList $ map (\(MkOp o)=>the Fetch_P (believe_me o)) fetches
+
+  runPhs : (ToPyPlaceholders phs) 
+     => Session
+     -> (fetches : List Op)
+     -> Eff () ['Phs ::: STATE phs, PYIO]
+  runPhs (MkS sessPy) fetches = 
+    do placeholders <- 'Phs :- get
+       sessPy /. "run" $> [opsPy, feed_dict placeholders] 
+       return ()
+    where
+    feed_dict : (ToPyPlaceholders phs) => phs -> Dictionary_P (Tensor_P, Arr) 
+    feed_dict phs = dict $ pyDictionary $ toPyPlaceholders phs
+    opsPy : Obj (PyList Fetch_P)
+    opsPy = pyList $ map (\(MkOp o)=>the Fetch_P (believe_me o)) fetches
+
 
 export 
 close : Session
@@ -642,7 +663,7 @@ gradients : {ysT : List (Shape, ElemType)}
          -> {xsT : List (Shape, ElemType)}
          -> (ys : Tensors ysT)
          -> (xs : Tensors xsT)
-         -> Tensors ysT
+         -> Tensors xsT
 gradients (MkTs ys) (MkTs xs) 
   = MkTs . unsafePerformIO $ gs
   where
