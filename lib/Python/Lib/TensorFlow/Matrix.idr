@@ -171,9 +171,13 @@ implementation Cast (Shape, ElemType) (Shape, NpElemType) where
 implementation Cast (List (Shape, ElemType)) (List (Shape, NpElemType)) where
   cast v = map cast v
 
+{-
 implementation Cast (Vect n a) (List a) where
-  cast (x::xs) = the (List a) $ x :: cast xs
-  cast [] = []
+  cast xs = 
+    where
+    cast : Vect n a -> List a-> List a
+    cast' (x::xs) accum = the (List a) $ x :: cast xs
+-}
 
 -- Placeholders
 record Placeholder (shape : Shape) (dt : ElemType) where

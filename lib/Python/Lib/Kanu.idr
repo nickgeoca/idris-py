@@ -242,18 +242,18 @@ cross_entropy y t = reduceMeanAll $ neg $ reduce_sum (t * log y) [1] False
 -- lr=0.01, momentum=0., decay=0., nesterov=False,
 
 private
-zipWith : (fn : {s : Shape} -> {dt : ElemType}
+zipWith' : (fn : {s : Shape} -> {dt : ElemType}
              -> Tensor s dt 
              -> Tensor s dt 
              -> Eff Op [PYIO] [PYIO]
           )
      -> Tensors tys
      -> Tensors tys 
+     -> List Op
      -> Eff (List Op) [PYIO]
-zipWith {tys=(s,dt)::tys} fn (MkTs (t1Py::ts1Py)) (MkTs (t2Py::ts2Py)) =
-  do op  <- fn t1 t2
-     ops <- zipWith fn ts1 ts2
-     pure $ op :: ops
+zipWith' {tys=(s,dt)::tys} fn (MkTs (t1Py::ts1Py)) (MkTs (t2Py::ts2Py)) accumOps =
+  do op <- fn t1 t2
+     zipWith' fn ts1 ts2 (op :: accumOps)
   where 
   t1 : Tensor s dt
   t2 : Tensor s dt
@@ -264,7 +264,18 @@ zipWith {tys=(s,dt)::tys} fn (MkTs (t1Py::ts1Py)) (MkTs (t2Py::ts2Py)) =
   t2 = MkT t2Py
   ts1 = MkTs ts1Py
   ts2 = MkTs ts2Py
-zipWith _ _ _ = pure []
+zipWith' _ _ _ accumOps = pure $ reverse accumOps
+
+private
+zipWith : (fn : {s : Shape} -> {dt : ElemType}
+             -> Tensor s dt 
+             -> Tensor s dt 
+             -> Eff Op [PYIO] [PYIO]
+          )
+     -> Tensors tys
+     -> Tensors tys 
+     -> Eff (List Op) [PYIO]
+zipWith fn ts1 ts2 = zipWith' fn ts1 ts2 []
 
 private
 updateWt : {dt : ElemType} -> {s : Shape} -> Tensor s dt -> Tensor s dt -> Eff Op [PYIO] [PYIO]
