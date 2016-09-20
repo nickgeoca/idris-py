@@ -170,6 +170,7 @@ TensorFlowKludge f = case f of
 TensorFlowNN : Signature
 TensorFlowNN f = case f of
   "softmax" => [Tensor_P] ~~> Tensor_P
+  "sigmoid" => [Tensor_P] ~~> Tensor_P
   _ => Module f
 
 
