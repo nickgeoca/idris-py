@@ -1,10 +1,13 @@
+# Kanu
 Kanu is a deep learning framework using [Idris](http://www.idris-lang.org/). The benefit of using Idris is that it is a dependently typed language; meaning it is possible to verify matrix/tensor operations at compile time instead of run time.
 
 The library can create a model and train it using Stochastic Gradient Descent (SGD) with the Cross Entropy function.
 
+Building and running the code has its own section.
+
 Currently the project is on hold. There is a bug with idris-py. The Effect/Monad code can not be TCO- so there are possible stack overflows. 
 
-Pros
+###Pros
  * Using do notation produces clear code
 ```Idris
 model x = do
@@ -25,17 +28,18 @@ model x = do
  * Fewer run time errors over python method
 
 
-Cons
+###Cons
  * Compiling the example takes a while: 1m45s
  * Type errors are more challenging to read in dependently typed language
  * A model's type must include the weights of the model. Need to look more into making the type less onerous (maybe type inference).
  * Can't TCO Effect/Monad code
 
-Notes:
+###Notes:
  * There is a tradeoff between type saftey and simplicity. For example, passing the placeholders along in State is type safer, but more cumbersome (see TensorFlow.Matrix.placeholder)
  * Edwin Brady plans to obsolete Effects. This is currently used in the library.
  * Effects permit changing the type of State (monad state does not allow this). This is simlar to arrows and is flexible.
 
+##Build and run
 ```shell
 # Create Idris executable with Haskell using Stack
 git clone <repo>
@@ -57,8 +61,8 @@ rm kanu.py & idris kanu.idr -p python -p effects --codegen python -o kanu.py
 python kanu.py
 ```
 
-Example
-'''python
+##Example
+```python
 $ python kanu.py
 "Loss : "
 [20.382847]
@@ -147,4 +151,4 @@ $ python kanu.py
          0.00938197,  0.00901177,  0.00989194,  0.01177379,  0.01086152],
        [ 0.01105584,  0.00992148,  0.01003957,  0.00892624,  0.00907977,
          0.00938197,  0.00901177,  0.00989194,  0.01177379,  0.01086152]], dtype=float32)]
-'''
+```
