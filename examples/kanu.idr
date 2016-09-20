@@ -24,18 +24,6 @@ printOpParam {s} {dt} sess t =
   ts : Tensors [(s,dt)]
   ts = t #> (MkTs [])
   
-{-
--- NOTE: Ran this w/ placeholder code and threw runtime error
-printOp : Session -> Tensor s dt -> Eff () [PYIO] 
-printOp {s} {dt} sess t = 
-  do ms <- t.run sess ts ()
-     case ms of
-       (MkMs m :: _) => printLn' (the (MatrixN s (cast dt)) $MkM' m)
-       _ => pure ()
-  where
-  ts : Tensors [(s,dt)]
-  ts = t #> (MkTs [])
--}
 
 -- NOTE: Ran this w/ placeholder code and threw runtime error
 runOps : Session -> List Op -> Eff () [PYIO] 
@@ -48,36 +36,29 @@ runOps2 sess ops = op.runPhs sess ops
 -- Model
 
 weights : ElemType -> List (Shape, ElemType)
-weights dt = [([10], dt),([784, 10], dt)]
---weights dt = [([10], dt),([784, 10], dt),([10], dt),([784, 10], dt)]
+-- weights dt = [([10], dt),([784, 10], dt)]
+weights dt = [([10], dt),([784, 10], dt),([10], dt),([784, 10], dt)]
 
 
 model : Tensor [batchDim, 784] dt
      -> Eff (NNData [batchDim, 10] dt (weights dt)) 
             ['NN ::: STATE (Tensors []), PYIO] 
             ['NN ::: STATE (), PYIO]
-model x = 
-  do start x
-     dense 10
-     end
-{-
-     y1 <- stop
+model x = do
+  -- Sequential 1
+  start x
+  dense 10
+  y1 <- stop
 
-     start x
-     dense 10
-     y2 <- stop
+  -- Sequential 2
+  start x
+  dense 10
+  y2 <- stop
 
-     y1 * y2
-     end
--}
+  -- Merge
+  y1 * y2
+  end
 
-
-modelx : Tensor s dt
-  -> TransEff.Eff () ['NN ::: STATE (Tensors ws)    , PYIO] 
-            ['NN ::: STATE (NNData s dt ws), PYIO]
-modelx x = do start x
-              pure ()
-  
 --------------------------------------------------
 -- Placeholders
 record Parameters where
@@ -89,21 +70,15 @@ implementation ToPyPlaceholders Parameters where
 
 --------------------------------------------------
 -- Main
-
 mainEff : TransEff.Eff () ['NN ::: STATE (Tensors []), 'Phs ::: STATE Parameters, PYIO]
                           ['NN ::: STATE ()          , 'Phs ::: STATE ()        , PYIO]
 mainEff =        
   do x <- placeholder X set_X 
      (MkNND y ws) <- model x
+     sess <- initSess
 
-     sess <- initSess -- NOTE: This line must go below the model
-     trainStep 600 sess ws y 
-
-     print' "Loss : "
-     printOpParam sess $ cross_entropy y half
-     print' "Model : "
-     printOpParam sess y
-
+     trainStep 7 sess ws y 
+     printStats sess (cross_entropy y half) y
 
      'Phs :- putM ()
      pure ()
@@ -118,15 +93,18 @@ mainEff =
            -> Tensors tys 
            -> Tensor [2, 10] Float32
            -> Eff () ['Phs ::: STATE Parameters, PYIO]
+  printStats : Session -> Tensor [] Float32 -> Tensor [2, 10] Float32 -> Eff () ['Phs ::: STATE Parameters, PYIO]
+  printStats sess loss y = 
+    do print' "Loss : "
+       printOpParam sess loss
+       print' "Model: "
+       printOpParam sess y
   trainStep Z sess ws y = pure ()
   trainStep (S cntr) sess ws y = 
-    do -- let loss = cross_entropy y half
-       print' "Loss : "
-       -- printOpParam sess loss
-       -- print' "Model: "
-       -- printOpParam sess y
-       -- ops <- sgd ws loss
-       -- runOps2 sess ops
+    do let loss = cross_entropy y half
+       printStats sess loss y
+       ops <- sgd ws loss
+       runOps2 sess ops
        trainStep cntr sess ws y
 
 
@@ -137,19 +115,3 @@ main =
   where
   phs : Parameters
   phs = MkParams (MkPh Nothing (full 3.14))
-
--- -}
-
-{-
-mainEff : Eff () [PYIO]
-mainEff = printOp !session $ !(variable (the (Tensor [2,2] Float32) !glorot_uniform)) 
-
-
-main : PIO ()
-main =  
-  do runInit [()] mainEff
-     pure ()
-  where
-  phs : Parameters
-  phs = MkParams (MkPh Nothing (full 3.14))
--- -}
