@@ -20,3 +20,7 @@ nn = unsafePerformIO $ importModule "tensorflow.python.ops.nn"
 export -- tf.nn.softmax(logits, name=None)
 softmax : Tensor [b, x] dt -> Tensor [b, x] dt
 softmax (MkT x) = MkT . unsafePerformIO $ nn /. "softmax" $. [x]
+
+export
+sigmoid : Tensor s dt -> Tensor s dt
+sigmoid (MkT x) = MkT . unsafePerformIO $ nn /. "sigmoid" $. [x]

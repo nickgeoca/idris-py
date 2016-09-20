@@ -190,15 +190,25 @@ export
   where
   z = x * y
 
-{- TODO: Important to do this fn to help get types down
-export 
-concat : Tensor s1 dt
-      -> Tensor s2 dt
-      -> NNLayer wTys (_,_) wTys (s1,dt)
-concat x y = 
--- 'sum', 'mul', 'concat', 'ave', 'cos', 'dot', 'max'.
--}
+export
+(+) : Tensor s dt
+   -> Tensor s dt
+   -> NNStart (s,dt) wTys
+(+) {s} {dt} x y = setNNOutput z
+  where
+  z = x + y
 
+export 
+sigmoid : NNLayer wTys (s , dt) wTys (s, dt)
+sigmoid = 
+  do t <- getNNOutput
+     setNNOutput $ NN.sigmoid t
+
+export 
+softmax : NNLayer wTys ([b,x], dt) wTys ([b,x], dt)
+softmax = 
+  do t <- getNNOutput
+     setNNOutput $ NN.softmax t
 
 --------------------------------------------------
 -- Layers
@@ -221,8 +231,7 @@ dense {dt} {batchDim} {inputDim} outputDim =
        -> (b : Tensor [outputDim] dt)  
        -> (w : Tensor [inputDim, outputDim] dt)
        ->      Tensor [batchDim, outputDim] dt
-  layer x b w = softmax (b +. (x *> w)) -- TODO: Fix precedence of operators and remove parans
-
+  layer x b w = NN.sigmoid $ b +. (x *> w) -- TODO: Fix precedence of operators and remove parans
 
 --------------------------------------------------
 -- Loss functions
